@@ -22,7 +22,7 @@
 """
 import cPickle
 import pyDes
-import binascii
+import binascii as BA
 import struct
 class Hsm:
     def __init__(self,fname):
@@ -49,9 +49,9 @@ class Hsm:
             16:主密钥加密64bit0的结果
             n:返回密码机程序版本号等信息
         """
-        print "the lmk is ",binascii.hexlify(self.HSM['lmk'])
+        print "the lmk is ",BA.hexlify(self.HSM['lmk'])
         k=pyDes.triple_des(self.HSM['lmk'])
-        result='HS00%s%s'%(binascii.hexlify(k.encrypt('\x00'*8)).upper(),\
+        result='HS00%s%s'%(BA.hexlify(k.encrypt('\x00'*8)).upper(),\
             'SJL06E HOST SECURITY MODULE: SOFTWARE VERSION 7.4.'\
         )
         return result
@@ -81,13 +81,13 @@ class Hsm:
         if keylen not in '123':
             return '2B22' #密钥长度与使用模式不符
         
-        cipher=binascii.unhexlify(data[7:])
-        #print 'cipher:',binascii.hexlify(cipher)
+        cipher=BA.unhexlify(data[7:])
+        #print 'cipher:',BA.hexlify(cipher)
         if len(cipher)!=int(keylen)*8:
             return '2B22' #密钥长度与使用模式不符
         k=pyDes.triple_des(self.HSM['lmk'])
         clear=k.decrypt(cipher)
-        #print 'clear:',binascii.hexlify(clear)
+        #print 'clear:',BA.hexlify(clear)
         self.setkey(keyindex,clear)
 
         if keylen=='1':
@@ -95,7 +95,7 @@ class Hsm:
         else:
             wk=pyDes.triple_des(clear)
         check=wk.encrypt('\x00'*8)
-        result='2B00'+binascii.hexlify(check).upper()
+        result='2B00'+BA.hexlify(check).upper()
         return result
 
 
