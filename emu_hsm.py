@@ -19,11 +19,14 @@
 （68/69）   解密一个PIN
 （80/81）   产生MAC
 （82/83）   验证MAC
+
+2013/4/15 完成2C,3A  humx
 """
 import cPickle
 import pyDes
 import binascii
 import struct
+import random
 class Hsm:
     def __init__(self,fname):
         self.hsmfile=fname
@@ -56,7 +59,7 @@ class Hsm:
         )
         return result
 
-    def handle_1E(self,data):
+    def handle_1E(self,data):#待完成
         """
         （1E/1F）   在MK及KEK加密的密钥之间的转换
         输入指令：2+1+1+(1A+3H)/（16/32/48）+1+16/32/48+4（可选）
@@ -175,16 +178,17 @@ class Hsm:
             2:"3A"
             1:1->64bit,2->128bit,3->192bit
             4:"K"+3位16进制索引号(密钥在密码机中要存放的位置（如：K001）) 16/32/48:用主密钥加密的工作密钥密文
-           
         输出结果：2+2+16
             2:‘3B’
             2:错误代码，00表示正确
             16:单、双、三倍长密钥加密64比特 0的结果。
         """   
-        code,keylen,codeindex=struct.unpack('2s1s1s',data[:4])
+        code,keylen,flagindex=struct.unpack('2s1s1s',data[:4])
         if code!='3A':
             return '3B60' #无此命令
-        if codeindex=='K':#输入索引
+        if keylen not in '123':
+            return '3B22' #密钥长度与使用模式不符
+        if flagindex=='K':#输入索引
             temp1,temp2 = struct.unpack('2s1s',data[4:7])
             hexindex=temp1+temp2
             print '3A  hexindex:',hexindex
@@ -222,7 +226,109 @@ class Hsm:
             result='2B00'+binascii.hexlify(check).upper()
         return result            
 
+    def handle_60(self,data):
+        """
+         （60/61）   加密一个PIN
+        输入指令：2+1+（1A+3H）/16H/32H/48H+2+12+12/18
+            2:60
+            1:1->64bit,2->128bit,3->192bit
+            4:"K"+3位16进制索引号(密钥在密码机中要存放的位置（如：K001）) 16/32/48:用主密钥加密的工作密钥密文
+            2:pin块格式 01~06
+            12:pin明文要加密的PIN 明文,不足12位填充F。如123456FFFFF
+            12/18:账号 12->PIN格式为‘01’ 18->PIN格式为‘04’ 其它PIN格式无此域
 
+        输出结果：2+2+16
+            2:61
+            2：错误代码，00为正确
+            16：加密后的pin模块
+        """
+        code,keylen,flagindex = struct.unpack('2s1s1s',data[:4])
+        if code != '60':
+            return '6160'
+        if keylen not in '123':
+            return '2B22' #密钥长度与使用模式不符
+        if flagindex == 'K':#输入密钥索引
+            currentend = 7
+            #temp1,temp2 = struct.unpack('2s1s',data[4:7])
+            hexindex = data[4:7]
+            print '60  hexindex:',hexindex
+            try:
+                keyindex=int(hexindex,16)
+                if keyindex<1 or keyindex>4096:
+                    raise ValueError
+            except ValueError:
+                return '6133' #密钥索引错
+            clear=self.getkey(keyindex)#取出密钥
+            print '3A:clear:',binascii.hexlify(clear)
+            if len(clear)!=int(keylen)*8:
+                return '6122' #密钥长度与使用模式不符
+        else:#输入加密的密钥
+            currentend=3+keylen*16
+            cipher = binascii.unhexlify(data[3:currentend])#取出加密后密钥
+            print '60 cipher:',binascii.hexlify(cipher)
+            k = pyDes.triple_des(self.HSM['lmk'])#加密机主密钥
+            clear = k.decrypt(cipher)#解密MK加密密钥
+            print '60 clear:',binascii.hexlif(clear)
+
+        pintype0,pintype1 = struct.unpack('1s1s',data[currentend:currentend+2])
+        currentend = currentend+2
+        if (pintype0!='0')||(pintype1 not in '123456'):
+            return '6128'#pin格式错
+        pin = data[currentend:currentend+12]
+        currentend=currentend+12
+        pin = pin.strip('F')
+
+        if pintype1 == '1':#格式为01
+            pinlen = len(pin)
+            number1 = '0'+str(pinlen)+pin+(16-2-pinlen)*'F'#得到PIN数据块1
+            account = data[currentend:]#得到账号
+            if len(account) != 12:
+                return '6128'#pin格式错
+            number2 = '0'*4+account#得到PIN数据块2
+            print '60 01 number1:',number1
+            print '60 01 number2:',number2
+            #生成PIN块
+            pinblock = ''.join([chr(ord(x[0])^ord(x[1])) for x in zip(binascii.unhexlify(number1),binascii.unhexlify(number2))])
+        if pintype1 == '2':#格式为02
+            pinlen = len(pin)
+            if pinlen > 6:
+                return '6129'#pin检查长度大于实际pin长度
+            pin = pin+'0'*(6-pinlen)
+            pinblock = str(pinlen)+pin+'987654321'
+            pinblock = binascii.unhexlify(pinblock)
+        if pintype1 == '3':#格式为03
+            pinlen = len(pin)
+            pinblock = pin + 'F'*(16-pinlen)
+            pinblock = binascii.unhexlify(pinblock)
+        if pintype1 == '4':#格式为04
+            pinlen = len(pin)
+            number1 = '0'+str(pinlen)+pin+(16-2-pinlen)*'F'
+            account = data[currentend:]
+            if len(account) != 18:
+                return '6128'#pin格式错
+            number2 = 4*'0'+s[-13:-1]
+            print '60 04 number1',number1
+            print '60 04 number2',number2
+            #生成pin块
+            pinblock = ''.join([chr(ord(x[0])^ord(x[1])) for x in zip(binascii.unhexlify(number1),binascii.unhexlify(number2))])
+        if pintype1 == '5':
+            pinlen = len(pin)
+            pinblock = '1'+str(pinlen)+pin
+            stemp='0123456789ABCDEF'
+            for x in range(0,(16-2-pinlen)):
+                pinblock = pinblock+random.choice(stemp)
+        if pintype1 == '6':
+            pinlen = len(pin)
+            pinblock = '0'+str(pinlen)+pin+(16-2-pinlen)*'F'
+
+        if keylen=='1':#生成校验码
+            wk=pyDes.des(clear)
+        else:
+            wk=pyDes.triple_des(clear)
+        pinresult=wk.encrypt(binascii.unhexlify(pinblock))
+        result = '6100'+binascii.hexlify(pinresult).upper()
+        
+        
 
     def load(self,fname):
         try:
