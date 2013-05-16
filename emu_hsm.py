@@ -104,22 +104,13 @@ class Hsm:
         if keylen not in '123':
             return '2B22' #密钥长度与使用模式不符
         
-<<<<<<< HEAD
-        cipher=BA.unhexlify(data[7:])
-        #print 'cipher:',BA.hexlify(cipher)
-=======
         cipher=binascii.unhexlify(data[7:])
         print '2A:cipher:',binascii.hexlify(cipher)
->>>>>>> humx
         if len(cipher)!=int(keylen)*8:
             return '2B22' #密钥长度与使用模式不符
         k=pyDes.triple_des(self.HSM['lmk'])
         clear=k.decrypt(cipher)
-<<<<<<< HEAD
-        #print 'clear:',BA.hexlify(clear)
-=======
         print '2A:clear:',binascii.hexlify(clear)
->>>>>>> humx
         self.setkey(keyindex,clear)
 
         if keylen=='1':
@@ -155,10 +146,12 @@ class Hsm:
             return '2D33' #密钥索引错
         
         clear=self.getkey(keyindex)#取出密钥
-        print '2C:clear:',binascii.hexlify(clear)
+        if not clear:
+            teturn '2D02' # 工作密钥不存在
+        print '2C:clear:',BA.hexlify(clear)
         k=pyDes.triple_des(self.HSM['lmk'])#使用MK加密密钥
         cipher = k.encrypt(clear)
-        print '2C:cipher:',binascii.hexlify(cipher)
+        print '2C:cipher:',BA.hexlify(cipher)
         if len(cipher)%8!=0:#生成密钥长度
             return '2D22'#密钥长度与使用模式不符
         keylen='0'
@@ -177,7 +170,7 @@ class Hsm:
             wk=pyDes.triple_des(clear)
         check=wk.encrypt('\x00'*8)
 
-        result='2D00'+keylen+binascii.hexlify(cipher).upper()+binascii.hexlify(check).upper()
+        result='2D00'+keylen+BA.hexlify(cipher).upper()+BA.hexlify(check).upper()
         return result
 
     def handle_3A(self,data):
@@ -281,7 +274,7 @@ class Hsm:
 
         pintype0,pintype1 = struct.unpack('1s1s',data[currentend:currentend+2])
         currentend = currentend+2
-        if (pintype0!='0')||(pintype1 not in '123456'):
+        if (pintype0!='0') or (pintype1 not in '123456'):
             return '6128'#pin格式错
         pin = data[currentend:currentend+12]
         currentend=currentend+12

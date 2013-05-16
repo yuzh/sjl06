@@ -35,7 +35,7 @@ class EmuServer(asyncore.dispatcher):
 
     def __init__(self, host, port):
         asyncore.dispatcher.__init__(self)
-        self.hsm=emu_hsm.Hsm('hsm.dat')
+        self.hsm=emu_hsm.Hsm('10.112.9.249.hsm')
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_reuse_addr()
         self.bind((host, port))
