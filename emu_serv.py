@@ -27,7 +27,8 @@ class EmuHandler(asyncore.dispatcher_with_send):
                 if len(self.buf)>=cmdlen:
                     Req=self.buf[2:cmdlen]
                     self.buf=self.buf[cmdlen:]
-                    Res=self.hsm.handle(Req)
+                    buf=self.hsm.handle(Req)
+                    Res=struct.pack('>h',len(buf))+buf
                     self.send(Res)
 
 

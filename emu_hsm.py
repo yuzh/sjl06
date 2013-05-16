@@ -147,7 +147,7 @@ class Hsm:
         
         clear=self.getkey(keyindex)#取出密钥
         if not clear:
-            teturn '2D02' # 工作密钥不存在
+            return '2D02' # 工作密钥不存在
         print '2C:clear:',BA.hexlify(clear)
         k=pyDes.triple_des(self.HSM['lmk'])#使用MK加密密钥
         cipher = k.encrypt(clear)
