@@ -4,6 +4,7 @@
 2013-05017:增加127.0.0.1为允许的客户端
     支持spdb开始的内容作为控制指令，包括help、exit、addip
 """
+import sys
 import asyncore
 import socket
 import struct
@@ -73,7 +74,8 @@ class EmuServer(asyncore.dispatcher):
 
     def __init__(self, host, port):
         asyncore.dispatcher.__init__(self)
-        self.hsm=emu_hsm.Hsm('10.112.9.249.hsm')
+        print('loading %s'%(sys.argv[1]))
+        self.hsm=emu_hsm.Hsm(sys.argv[1])
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_reuse_addr()
         self.bind((host, port))
@@ -93,5 +95,9 @@ class EmuServer(asyncore.dispatcher):
                 sock.send(gen_pkg('You r not my client!'))
                 sock.close()
 
-server = EmuServer('0.0.0.0', 10008)
-asyncore.loop()
+if __name__=='__main__':
+    if len(sys.argv)!=2:
+        print('Usage:emu_serv.py hsmfilename')
+        exit(0)
+    server = EmuServer('0.0.0.0', 10008)
+    asyncore.loop()
