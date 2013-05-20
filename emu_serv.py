@@ -28,28 +28,34 @@ class EmuHandler(asyncore.dispatcher_with_send):
         print 'hsm set to ',`hsm`
 
     def handle(self,Req):
-        if Req[:4]=='spdb':
-            buf=self.handle_cmd(Req[4:])
+        if Req[0]>='a' and Req[0]<='z':
+            buf=self.handle_cmd(Req.split())
         else:
             buf=self.hsm.handle(Req)
         return buf
 
     def handle_cmd(self,cmd):
-        if cmd=='exit':
+        if cmd[0]=='exit':
             self.send(gen_pkg('bye'))
             self.close()
             print('HSM EMU Server shutdown!')
             exit(0)
-        elif cmd[:4]=='help':
+        elif cmd[0]=='help':
             return 'HSM Emu server,support commands:\n'\
                 'help\n'\
                 'exit\n'\
                 'addip[ipaddr]\n'
-        elif cmd[:5]=='addip':
+        elif cmd[0]=='addip':
             print 'origin',self.hsm.HSM['whitelist']
-            self.hsm.HSM['whitelist'].append(cmd[5:])
+            self.hsm.HSM['whitelist'].append(cmd[1])
             print 'new',self.hsm.HSM['whitelist']
-            return 'add ip ok'
+            return 'add ip %s ok' % (cmd[1])
+        elif cmd[0]=='status':
+            text='whitelist'+`self.hsm.HSM['whitelist']`+'\n'
+            text+='socketlist'+'\n'
+            for x in asyncore.socket_map.values():
+                text+='    '+`x.addr`+'\n'
+            return text
         else:
             return 'unknown command'
 

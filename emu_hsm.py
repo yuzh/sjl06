@@ -688,6 +688,7 @@ class Hsm:
             cPickle.dump(self.HSM,open(self.hsmfile,'w'))
         except IOError:
             #print('save hsm to %s failed!'%self.hsmfile)
+			pass
 
     def getkey(self,i):
         return self.HSM['keys'].get(i)

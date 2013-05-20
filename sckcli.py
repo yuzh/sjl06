@@ -17,7 +17,7 @@ def unpkg(buf):
     return (pkglen,buf[2:2+pkglen])
 
 if __name__=='__main__':
-    if len(sys.argv)!=2:
+    if len(sys.argv)<=1:
         print('Usage:sckcli.py msgtext')
         exit(1)
     HOST=os.environ.get('HSM_HOST')
@@ -33,7 +33,7 @@ if __name__=='__main__':
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((HOST,PORT))
 
-    cmd=sys.argv[1]
+    cmd=' '.join(sys.argv[1:])
     s.send(gen_pkg(cmd))
     ret=s.recv(8192)
     s.close()
