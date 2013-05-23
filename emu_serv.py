@@ -44,6 +44,7 @@ class EmuHandler(asyncore.dispatcher_with_send):
             return 'HSM Emu server,support commands:\n'\
                 'help\n'\
                 'exit\n'\
+                'status\n'\
                 'addip[ipaddr]\n'
         elif cmd[0]=='addip':
             print 'origin',self.hsm.HSM['whitelist']
