@@ -4,6 +4,7 @@ import unittest
 import emu_hsm
 """
 2013-5-23 初次创建
+2013-5-29 humx 新增62测试
 """
 HSM=emu_hsm.Hsm('10.112.9.249.hsm')
 class HsmFunctionTest(unittest.TestCase):
@@ -66,8 +67,22 @@ class HsmFunctionTest(unittest.TestCase):
 		self.assertEqual(ret[:4],'HS00')
 
 	def test_62(self):
-		ret=self.hsm.handle('HR')
-		self.assertEqual(ret[:4],'HS00')
+		#clear1:0123456789ABCDEF
+		#clear2:FEDCBA9876543210
+		#PIN1格式:01
+		#pin1block1:0592389FFFFFFFFF
+		#pin1block2:0000400000123456
+		#pin1:0592789fffedcba9
+		#pin1cipher:5D1B629D084CF4AE
+		#pin1 12:400000123456
+		#pin2格式：02
+		#pin2:5923890987654321
+		#pin2chiper:CC37FA2D700E204E
+
+		req = '62'+'1'+'0123456789ABCDEF'+'1'+'FEDCBA9876543210'+'01'+'02'+'5D1B629D084CF4AE'+'400000123456'
+		expect = '63'+'00'+'CC37FA2D700E204E'
+		ret=self.hsm.handle(req)
+		self.assertEqual(ret,expect)
 
 	def test_68(self):
 		ret=self.hsm.handle('HR')
