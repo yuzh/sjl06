@@ -309,7 +309,7 @@ class Hsm:
         if flagindex=='K':#输入索引
             temp1,temp2 = struct.unpack('2s1s',data[4:7])
             hexindex=temp1+temp2
-            print '3A  hexindex:',hexindex
+            #print '3A  hexindex:',hexindex
             try:
                 keyindex=int(hexindex,16)
                 if keyindex<1 or keyindex>4096:
@@ -317,7 +317,7 @@ class Hsm:
             except ValueError:
                 return '3B33' #密钥索引错
             clear=self.getkey(keyindex)#取出密钥
-            print '3A:clear:',binascii.hexlify(clear)
+            #print '3A:clear:',binascii.hexlify(clear)
             if len(clear)!=int(keylen)*8:
                 return '3B22' #密钥长度与使用模式不符
 
@@ -329,12 +329,12 @@ class Hsm:
             result='3B00'+binascii.hexlify(check).upper()     
         else:#输入MK加密的密钥
             cipher=binascii.unhexlify(data[3:])
-            print '3A:cipher:',binascii.hexlify(cipher)
+            #print '3A:cipher:',binascii.hexlify(cipher)
             if len(cipher)!=int(keylen)*8:
                 return '3B22' #密钥长度与使用模式不符
             k=pyDes.triple_des(self.HSM['lmk'])
             clear=k.decrypt(cipher)#解密成明文
-            print '3A:clear:',binascii.hexlify(clear)
+            #print '3A:clear:',binascii.hexlify(clear)
 
             if keylen=='1':
                 wk=pyDes.des(clear)
@@ -613,16 +613,19 @@ class Hsm:
         if(len(mac_data) != mac_len):
             return '8124' #数据长度指示域错
 
-        if mactype == '1':
-            mac_object = myMac(working_key,mac_len,mac_data)
-            hex_mac = mac_object.get_mac(int(mactype)) 
-            return "8100%s"%(hex_mac) 
-        if mactype == '2':
-            m = mac(unhexlify(mackey),ANSI_X99)
-            return "8100",hexlify(m.mac(mac_data)).upper()
-        if mactype == '3':
-            m = mac(unhexlify(mackey),ANSI_X919)
-            return "8100",hexlify(m.mac(mac_data)).upper()
+        mac_object = myMac(working_key,mac_len,mac_data)
+        hex_mac = mac_object.get_mac(int(mactype)) 
+        return "8100%s"%(hex_mac) 
+#        if mactype == '1':
+ #           mac_object = myMac(working_key,mac_len,mac_data)
+  #          hex_mac = mac_object.get_mac(int(mactype)) 
+   #         return "8100%s"%(hex_mac) 
+    #    if mactype == '2':
+     #       m = mac(unhexlify(mackey),ANSI_X99)
+      #      return "8100",hexlify(m.mac(mac_data)).upper()
+       # if mactype == '3':
+        #    m = mac(unhexlify(mackey),ANSI_X919)
+         #   return "8100",hexlify(m.mac(mac_data)).upper()
 
 
     def handle_82(self,data):#待完成
@@ -641,11 +644,11 @@ class Hsm:
         """  
         code,mactype,keylen = struct.unpack('2s1s1s',data[:4])
         if code != '82':
-            return '8260'#无此命令
+            return '8360'#无此命令
         if mactype not in ['1','2','3']:
-            return '8223'#MAC模式指示域错
+            return '8323'#MAC模式指示域错
         if keylen not in '123':
-            return '8222'#密钥长度与使用模式不符
+            return '8322'#密钥长度与使用模式不符
         
         if data[4] == 'K':
             hexindex = data[5:8]
@@ -653,13 +656,13 @@ class Hsm:
             next_field = 8
 
             if keyindex<1 or keyindex>4096:
-                return '8233' #密钥索引错
+                return '8333' #密钥索引错
             working_key = self.getkey(keyindex) 
         else:
             hex_cipher_len = int(keylen)*16
             cipher = binascii.unhexlify(data[4:4+hex_cipher_len])
             if len(cipher) != int(keylen)*8:
-                return '8222'#密钥长度与使用模式不符
+                return '8322'#密钥长度与使用模式不符
             next_field = 4+hex_cipher_len
             k = pyDes.triple_des(self.HSM['lmk']) 
             working_key = k.decrypt(cipher)
@@ -670,11 +673,11 @@ class Hsm:
         mac_len = int(data[next_field:next_field+4])
         next_field += 4
         if mac_len >= 8192:
-            return '8224' #数据长度指示域错
+            return '8324' #数据长度指示域错
          
         mac_data = data[next_field:next_field+mac_len]
         if(len(mac_data) != mac_len):
-            return '8224' #数据长度指示域错
+            return '8324' #数据长度指示域错
 
         mac_object = myMac(working_key,mac_len,mac_data)
         hex_mac = mac_object.get_mac(int(mactype))
@@ -699,7 +702,7 @@ class Hsm:
         try:
             cPickle.dump(self.HSM,open(self.hsmfile,'w'))
         except IOError:
-            #print('save hsm to %s failed!'%self.hsmfile)
+            print('save hsm to %s failed!'%self.hsmfile)
 			pass
 
     def getkey(self,i):

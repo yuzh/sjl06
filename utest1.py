@@ -5,6 +5,7 @@ import emu_hsm
 """
 2013-5-23 初次创建
 2013-5-29 humx 新增62测试
+2013-5-30 humx 新增68,,80,82测试
 """
 HSM=emu_hsm.Hsm('10.112.9.249.hsm')
 class HsmFunctionTest(unittest.TestCase):
@@ -111,8 +112,16 @@ class HsmFunctionTest(unittest.TestCase):
 		self.assertEqual(ret,expect)
 
 	def test_82(self):
-		ret=self.hsm.handle('HR')
-		self.assertEqual(ret[:4],'HS00')
+		#0106 ZAK2 :0123456789ABCDEF
+		#0106 ZAK2 location:20D
+		#MAC算法：2，AIX 9.9
+		#MAC数据长度：16
+		#MAC数据：0123456789ABCDEF
+
+		req='82'+'2'+'1'+'K'+'20D'+'6C9040F97405AC75'+'0016'+'0123456789ABCDEF'
+		expect = '83'+'00'
+		ret=self.hsm.handle(req)
+		self.assertEqual(ret,expect)
 
 if __name__=='__main__':
 	unittest.main()
