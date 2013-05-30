@@ -118,7 +118,7 @@ class HsmFunctionTest(unittest.TestCase):
 		#MAC数据长度：16
 		#MAC数据：0123456789ABCDEF
 
-		req='82'+'2'+'1'+'K'+'20D'+'56CC09E7'+'0016'+'0123456789ABCDEF'
+		req='82'+'2'+'1'+'K'+'20D'+'56CC09E7'+'0008'+'0123456789ABCDEF'
 		expect = '83'+'00'
 		ret=self.hsm.handle(req)
 		self.assertEqual(ret,expect)
