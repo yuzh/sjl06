@@ -35,7 +35,7 @@ import struct
 import random
 from myPin import myPin
 from myMac import myMac
-import mac
+from mac import mac
 
 class Hsm:
     def __init__(self,fname):
@@ -608,14 +608,14 @@ class Hsm:
         next_field += 4
         if mac_len >= 8192:
             return '8124' #数据长度指示域错
-         
-        mac_data = data[next_field:next_field+mac_len]
+        
+        mac_data = binascii.unhexlify(data[next_field:next_field+mac_len*2])
         if(len(mac_data) != mac_len):
             return '8124' #数据长度指示域错
 
         mac_object = myMac(working_key,mac_len,mac_data)
-        hex_mac = mac_object.get_mac(int(mactype)) 
-        return "8100%s"%(hex_mac) 
+        mac_result = mac_object.get_mac(int(mactype)) 
+        return "8100"+binascii.hexlify(mac_result).upper()
 #        if mactype == '1':
  #           mac_object = myMac(working_key,mac_len,mac_data)
   #          hex_mac = mac_object.get_mac(int(mactype)) 
