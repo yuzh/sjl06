@@ -675,15 +675,15 @@ class Hsm:
         if mac_len >= 8192:
             return '8324' #数据长度指示域错
          
-        mac_data = data[next_field:next_field+mac_len]
+        mac_data = binascii.unhexlify(data[next_field:next_field+mac_len*2])
         if(len(mac_data) != mac_len):
             return '8324' #数据长度指示域错
 
         mac_object = myMac(working_key,mac_len,mac_data)
-        hex_mac = mac_object.get_mac(int(mactype))
-        if hex_mac == verify_mac:
-            return "8300" #校验错
-        else:
+        mac_result = mac_object.get_mac(int(mactype))
+        if (binascii.hexlify(mac_result).upper()) == verify_mac:
+            return "8300" 
+        else:#校验错
             return "8320"
 
     def load(self,fname):
