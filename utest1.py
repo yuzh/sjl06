@@ -85,12 +85,30 @@ class HsmFunctionTest(unittest.TestCase):
 		self.assertEqual(ret,expect)
 
 	def test_68(self):
-		ret=self.hsm.handle('HR')
-		self.assertEqual(ret[:4],'HS00')
+		#0106 ZAK2 :0123456789ABCDEF
+		#0106 ZAK2 location:20D
+		#PIN1格式:01
+		#pin1block1:0592389FFFFFFFFF
+		#pin1block2:0000400000123456
+		#pin1:0592789fffedcba9
+		#pin1cipher:5D1B629D084CF4AE
+
+		req='68'+'1'+'K'+'20D'+'01'+'5D1B629D084CF4AE'+'400000123456'
+		expect = '69'+'00'+'92389FFFFFFF'
+		ret=self.hsm.handle(req)
+		self.assertEqual(ret,expect)
 
 	def test_80(self):
-		ret=self.hsm.handle('HR')
-		self.assertEqual(ret[:4],'HS00')
+		#0106 ZAK2 :0123456789ABCDEF
+		#0106 ZAK2 location:20D
+		#MAC算法：2，AIX 9.9
+		#MAC数据长度：16
+		#MAC数据：0123456789ABCDEF
+
+		req='80'+'2'+'1'+'K'+'20D'+'0016'+'0123456789ABCDEF'
+		expect = '81'+'00'+'6C9040F97405AC75'
+		ret=self.hsm.handle(req)
+		self.assertEqual(ret,expect)
 
 	def test_82(self):
 		ret=self.hsm.handle('HR')

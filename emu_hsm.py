@@ -25,6 +25,8 @@
 2013/5/13 完成1E humx 待测试
 2013/5/19 完成所有 humx 待测试
 
+2013/5/30 修改80命令 humx
+
 """
 import cPickle
 import pyDes
@@ -33,6 +35,7 @@ import struct
 import random
 from myPin import myPin
 from myMac import myMac
+import mac
 
 class Hsm:
     def __init__(self,fname):
@@ -609,9 +612,18 @@ class Hsm:
         mac_data = data[next_field:next_field+mac_len]
         if(len(mac_data) != mac_len):
             return '8124' #数据长度指示域错
-        mac_object = myMac(working_key,mac_len,mac_data)
-        hex_mac = mac_object.get_mac(int(mactype)) 
-        return "8100%s"%(hex_mac) 
+
+        if mactype == '1':
+            mac_object = myMac(working_key,mac_len,mac_data)
+            hex_mac = mac_object.get_mac(int(mactype)) 
+            return "8100%s"%(hex_mac) 
+        if mactype == '2':
+            m = mac(unhexlify(mackey),ANSI_X99)
+            return "8100",hexlify(m.mac(mac_data)).upper()
+        if mactype == '3':
+            m = mac(unhexlify(mackey),ANSI_X919)
+            return "8100",hexlify(m.mac(mac_data)).upper()
+
 
     def handle_82(self,data):#待完成
         """
