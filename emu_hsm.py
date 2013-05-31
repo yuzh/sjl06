@@ -25,7 +25,8 @@
 2013/5/13 完成1E humx 待测试
 2013/5/19 完成所有 humx 待测试
 
-2013/5/30 修改80命令 humx
+2013/5/30 修改80,82命令 humx
+2013/5/31 修改2C,1E命令 humx
 
 """
 import cPickle
@@ -96,21 +97,25 @@ class Hsm:
         if keylen not in '123':
             return '1F22' #密钥长度与使用模式不符
 
-        if flag1 == '1':#MK加密->KEK加密 输入KEK索引
+        if flag1 == '1':#MK加密->KEK加密 输入KEK索引或者KEK密钥值
             code2,hexindex = struct.unpack('1s3s',data[currentend:currentend+4])
-            currentend = currentend+4
-            if code2 != 'K':
-                return '1F60' #无此命令
 
-            try:#得到KEK密钥索引
-                keyindex=int(hexindex,16)
-                if keyindex<1 or keyindex>4096:
-                    raise ValueError
-            except ValueError:
-                return '1F33' #密钥索引错
+            if code2 == 'K':#输入索引
+                currentend = currentend+4
+                try:#得到KEK密钥索引
+                    keyindex=int(hexindex,16)
+                    if keyindex<1 or keyindex>4096:
+                        raise ValueError
+                except ValueError:
+                    return '1F33' #密钥索引错
 
-            KEK=self.getkey(keyindex)#取出KEK密钥
-            #print '1E:KEK:',binascii.hexlify(KEK)
+                KEK=self.getkey(keyindex)#取出KEK密钥
+                #print '1E:KEK:',binascii.hexlify(KEK)
+            else:#输入WK加密的KEK
+                KEK_cipher = binascii.unhexlify(data[currentend:currentend+16*int(keylen)])
+                k = pyDes.triple_des(self.HSM['lmk'])#加密机主密钥
+                KEK = k.decrypt(KEK_cipher)#解密KEK
+                currentend = currentend+16*int(keylen)
 
             keylen2 = data[currentend]#密文长度
             currentend = currentend+1
@@ -142,12 +147,13 @@ class Hsm:
                 wk = pyDes.triple_des(KEK)
             message = wk.encrypt(clear)#使用KEK加密密文
 
-            if keylen2 == '1':
+            if keylen2 == '1':#WK校验值
                 wk2 = pyDes.des(clear)
             else:
                 wk2 = pyDes.triple_des(clear)
             check=wk2.encrypt('\x00'*8)
-            result='1E00'+binascii.hexlify(message).upper()+binascii.hexlify(check)
+            result='1F00'+binascii.hexlify(message).upper()+binascii.hexlify(check).upper()
+
             return result
 
         if flag1 == '2':#KEK加密->MK加密 输入MK加密KEK密钥
@@ -194,7 +200,7 @@ class Hsm:
             else:
                 wk2 = pyDes.triple_des(clear)
             check=wk2.encrypt('\x00'*8)
-            result='1E00'+binascii.hexlify(message).upper()+binascii.hexlify(check)
+            result='1F00'+binascii.hexlify(message).upper()+binascii.hexlify(check).upper()
             return result
 
     def handle_2A(self,data):
@@ -243,7 +249,7 @@ class Hsm:
         """
         （2C/2D）   读取一个指定的索引的密钥
         输入指令：2+4
-            2:"2A"
+            2:"2C"
             4:"K"+3位16进制索引号(密钥在密码机中要存放的位置（如：K001）)
            
         输出结果：2+2+1+16/32/48+16
@@ -264,10 +270,10 @@ class Hsm:
             return '2D33' #密钥索引错
         
         clear=self.getkey(keyindex)#取出密钥
-        print '2C:clear:',binascii.hexlify(clear)
+       # print '2C:clear:',binascii.hexlify(clear)
         k=pyDes.triple_des(self.HSM['lmk'])#使用MK加密密钥
         cipher = k.encrypt(clear)
-        print '2C:cipher:',binascii.hexlify(cipher)
+       # print '2C:cipher:',binascii.hexlify(cipher)
         if len(cipher)%8!=0:#生成密钥长度
             return '2D22'#密钥长度与使用模式不符
         keylen='0'
