@@ -71,6 +71,14 @@ class Hsm:
         )
         return result
 
+    def test_encrypt(self,keylen,KEK,clear):
+        if keylen == '1':#KEK密钥加密WK
+            wk = pyDes.des(KEK)
+        else:
+            wk = pyDes.triple_des(KEK)
+        message = wk.encrypt(clear)#使用KEK加密后的WK密文
+        return message
+
     def handle_1E(self,data):
         """
         （1E/1F）   在MK及KEK加密的密钥之间的转换
@@ -153,24 +161,32 @@ class Hsm:
                     return '1F33' #密钥索引错
                 self.setkey(keyindex2,clear)
 
+            print 'KEK',binascii.hexlify(KEK).upper()
+            print 'WK',binascii.hexlify(clear).upper()
+            print "keylen",keylen
+            #计算结果
             if keylen == '1':#KEK密钥加密WK
                 wk = pyDes.des(KEK)
             else:
                 wk = pyDes.triple_des(KEK)
-            message = wk.encrypt(clear)#使用KEK加密密文
+            message = wk.encrypt(clear)#使用KEK加密后的WK密文
+
+            message2 = self.test_encrypt('1',KEK,clear)
+            
+            print 'message',binascii.hexlify(message).upper()
+            print 'message2',binascii.hexlify(message2).upper()
 
             if keylen2 == '1':#WK校验值
                 wk2 = pyDes.des(clear)
             else:
                 wk2 = pyDes.triple_des(clear)
             check=wk2.encrypt('\x00'*8)
+
             result='1F00'+binascii.hexlify(message).upper()+binascii.hexlify(check).upper()
 
-            print 'KEK',binascii.hexlify(KEK).upper()
-            print 'WK',binascii.hexlify(clear).upper()
             return result
 
-        if flag1 == '2':#KEK加密->MK加密 输入MK加密KEK密钥
+        else:#KEK加密->MK加密 输入MK加密KEK密钥
             KEKchiper = data[currentend:currentend+int(keylen)*16]#MK加密后的KEK密钥
             currentend = currentend+int(keylen)*16
 
@@ -629,10 +645,13 @@ class Hsm:
         if mac_len >= 8192:
             return '8124' #数据长度指示域错
         
-        mac_data = binascii.unhexlify(data[next_field:next_field+mac_len])
-        if(len(mac_data) != mac_len/2):
-            return '8124' #数据长度指示域错
+        mac_data = binascii.unhexlify(data[next_field:])
+        if(len(mac_data) < mac_len/2):
+            return '8161' #消息太短
+        if(len(mac_data) > mac_len/2):
+            return '8162' #消息太长
 
+        #计算MAC
         mac_object = myMac(working_key,mac_len/2,mac_data)
         mac_result = mac_object.get_mac(int(mactype)) 
         return "8100"+binascii.hexlify(mac_result).upper()
@@ -733,7 +752,7 @@ class Hsm:
 
 
 if __name__=='__main__':
-    hsm=Hsm('hsm.dat')
+    hsm=Hsm('10.112.9.249.hsm')
     #print hsm.handle('HR')
     ##print hsm.handle('2AK00110123456789ABCDEF')
     ##print hsm.handle('2AK00220123456789ABCDEF0123456789ABCDEF')
@@ -750,6 +769,7 @@ if __name__=='__main__':
     #print hsm.handle('8013KFFF002012345678901234567890')
     #test case for handle_82
     #print hsm.handle('8213KFFFBE0AA695002012345678901234567890')
-    print hsm.handle('1E'+'1'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D')
-    print binascii.hexlify(hsm.HSM['lmk']).upper()
+    print "1E：",hsm.handle('1E'+'1'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D')
+    print "lmk:",binascii.hexlify(hsm.HSM['lmk']).upper()
+    print "test_encrypt",binascii.hexlify(hsm.test_encrypt('1',binascii.unhexlify('0123456789ABCDEF'),binascii.unhexlify('A7FDB545BACB02DF'))).upper()
     hsm.save()

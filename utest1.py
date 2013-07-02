@@ -59,6 +59,12 @@ class HsmFunctionTest(unittest.TestCase):
 			ret=self.hsm.handle(req)
 			self.assertEqual(ret,expect)
 
+#	def test_2C2(self):#取得zak值
+#		req='2C'+'K'+'20D' # agent 0106's zak on 18.22
+#		expect='1'+'1C0BE608104E8118'+'D5D44FF720683D0D'
+#		ret=self.hsm.handle(req)
+#		self.assertEqual(ret,expect)
+
 	def test_3A(self):
 		ret=self.hsm.handle('HR')
 		self.assertEqual(ret[:4],'HS00')
@@ -106,8 +112,8 @@ class HsmFunctionTest(unittest.TestCase):
 		#MAC数据长度：16
 		#MAC数据：0123456789ABCDEF
 
-		req='80'+'2'+'1'+'K'+'20D'+'0008'+'0123456789ABCDEF'
-		expect = '81'+'00'+'56CC09E7'
+		req='80'+'2'+'1'+'K'+'20D'+'0020'+'0123456789ABCDEF1234'
+		expect = '81007DC7E694151E8E42'
 		ret=self.hsm.handle(req)
 		self.assertEqual(ret,expect)
 
@@ -118,7 +124,7 @@ class HsmFunctionTest(unittest.TestCase):
 		#MAC数据长度：16
 		#MAC数据：0123456789ABCDEF
 
-		req='82'+'2'+'1'+'K'+'20D'+'56CC09E7'+'0008'+'0123456789ABCDEF'
+		req='82'+'2'+'1'+'K'+'20D'+'7DC7E694'+'0020'+'0123456789ABCDEF1234'
 		expect = '83'+'00'
 		ret=self.hsm.handle(req)
 		self.assertEqual(ret,expect)

@@ -94,7 +94,7 @@ class myMac:
 
 if __name__ == "__main__":
     key = binascii.unhexlify("0123456789ABCDEF")
-    data =binascii.unhexlify("0123456789ABCDEF12345678")
+    data =binascii.unhexlify("0123456789ABCDEF1234")
     testMac1 = myMac(key,len(data),data)
     print binascii.hexlify(testMac1.get_mac(1)).upper() 
     print binascii.hexlify(testMac1.get_mac(2)).upper()
