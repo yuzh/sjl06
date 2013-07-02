@@ -27,6 +27,7 @@
 
 2013/5/30 修改80,82命令 humx
 2013/5/31 修改2C,1E命令 humx
+2013/7/1  修改测试1E命令 humx
 
 """
 import cPickle
@@ -87,6 +88,15 @@ class Hsm:
             2:错误代码，00表示正确
             16/32/48:转换后KEK或MK加密下的WK
             16:WK校验值
+
+        # clear=0123456789ABCDEF
+        # cipher/MK=1C0BE608104E8118
+        # data clear=0000000000000000
+        # data cipher=D5D44FF720683D0D
+
+        # normal
+        req='1E'+'1'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D'
+        expect='1F00'+'B6D1898291A4EF73'+'FCB2E54831F3EC60'
         """
         code,flag1,keylen = struct.unpack('2s1s1s',data[:4])
         currentend = 4
@@ -100,6 +110,7 @@ class Hsm:
         if flag1 == '1':#MK加密->KEK加密 输入KEK索引或者KEK密钥值
             code2,hexindex = struct.unpack('1s3s',data[currentend:currentend+4])
 
+            #得到KEK干净的密钥
             if code2 == 'K':#输入索引
                 currentend = currentend+4
                 try:#得到KEK密钥索引
@@ -117,6 +128,7 @@ class Hsm:
                 KEK = k.decrypt(KEK_cipher)#解密KEK
                 currentend = currentend+16*int(keylen)
 
+            #使用KEK加密WK
             keylen2 = data[currentend]#密文长度
             currentend = currentend+1
             if keylen2 not in '123':
@@ -126,7 +138,7 @@ class Hsm:
             currentend = currentend+16*int(keylen2)
             #print '1E cipher:',binascii.hexlify(cipher)
             k = pyDes.triple_des(self.HSM['lmk'])#加密机主密钥
-            clear = k.decrypt(cipher)#解密MK加密密文
+            clear = k.decrypt(cipher)#解密MK加密密文，得到干净WK
             #print '1E clear:',binascii.hexlify(clear)
 
             left = data[currentend:]#存储新密钥
@@ -141,7 +153,7 @@ class Hsm:
                     return '1F33' #密钥索引错
                 self.setkey(keyindex2,clear)
 
-            if keylen == '1':#KEK密钥
+            if keylen == '1':#KEK密钥加密WK
                 wk = pyDes.des(KEK)
             else:
                 wk = pyDes.triple_des(KEK)
@@ -154,6 +166,8 @@ class Hsm:
             check=wk2.encrypt('\x00'*8)
             result='1F00'+binascii.hexlify(message).upper()+binascii.hexlify(check).upper()
 
+            print 'KEK',binascii.hexlify(KEK).upper()
+            print 'WK',binascii.hexlify(clear).upper()
             return result
 
         if flag1 == '2':#KEK加密->MK加密 输入MK加密KEK密钥
@@ -615,11 +629,11 @@ class Hsm:
         if mac_len >= 8192:
             return '8124' #数据长度指示域错
         
-        mac_data = binascii.unhexlify(data[next_field:next_field+mac_len*2])
-        if(len(mac_data) != mac_len):
+        mac_data = binascii.unhexlify(data[next_field:next_field+mac_len])
+        if(len(mac_data) != mac_len/2):
             return '8124' #数据长度指示域错
 
-        mac_object = myMac(working_key,mac_len,mac_data)
+        mac_object = myMac(working_key,mac_len/2,mac_data)
         mac_result = mac_object.get_mac(int(mactype)) 
         return "8100"+binascii.hexlify(mac_result).upper()
 #        if mactype == '1':
@@ -681,13 +695,13 @@ class Hsm:
         if mac_len >= 8192:
             return '8324' #数据长度指示域错
          
-        mac_data = binascii.unhexlify(data[next_field:next_field+mac_len*2])
-        if(len(mac_data) != mac_len):
+        mac_data = binascii.unhexlify(data[next_field:next_field+mac_len])
+        if(len(mac_data) != mac_len/2):
             return '8324' #数据长度指示域错
 
-        mac_object = myMac(working_key,mac_len,mac_data)
+        mac_object = myMac(working_key,mac_len/2,mac_data)
         mac_result = mac_object.get_mac(int(mactype))
-        if (binascii.hexlify(mac_result).upper()) == verify_mac:
+        if (binascii.hexlify(mac_result[:4]).upper()) == verify_mac:
             return "8300" 
         else:#校验错
             return "8320"
@@ -736,6 +750,6 @@ if __name__=='__main__':
     #print hsm.handle('8013KFFF002012345678901234567890')
     #test case for handle_82
     #print hsm.handle('8213KFFFBE0AA695002012345678901234567890')
-
-
+    print hsm.handle('1E'+'1'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D')
+    print binascii.hexlify(hsm.HSM['lmk']).upper()
     hsm.save()

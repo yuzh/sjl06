@@ -46,7 +46,7 @@ class myMac:
         else:
             k = pyDes.triple_des(self.key)
 
-        self.mac = k.encrypt(pre)[:4]
+        self.mac = k.encrypt(pre)[:8]
         self.hex_mac = binascii.hexlify(self.mac).upper()
         return self.mac
 
@@ -64,7 +64,7 @@ class myMac:
             pre = k.encrypt(pre)
             start += 8
     
-        self.mac = pre[:4]
+        self.mac = pre[:8]
         self.hex_mac = binascii.hexlify(self.mac).upper()
         return self.mac
 
@@ -86,7 +86,7 @@ class myMac:
 
         pre = rhk.decrypt(pre)
         pre = lhk.encrypt(pre)
-        self.mac = pre[:4]
+        self.mac = pre[:8]
         self.hex_mac = binascii.hexlify(self.mac).upper()
         return self.mac
 
