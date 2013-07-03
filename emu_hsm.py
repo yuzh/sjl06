@@ -27,7 +27,7 @@
 
 2013/5/30 修改80,82命令 humx
 2013/5/31 修改2C,1E命令 humx
-2013/7/1  修改测试1E命令 humx
+2013/7/2  修改测试1E命令，2A（增加奇校验）命令 humx
 
 """
 import cPickle
@@ -71,13 +71,11 @@ class Hsm:
         )
         return result
 
-    def test_encrypt(self,keylen,KEK,clear):
-        if keylen == '1':#KEK密钥加密WK
-            wk = pyDes.des(KEK)
-        else:
-            wk = pyDes.triple_des(KEK)
-        message = wk.encrypt(clear)#使用KEK加密后的WK密文
-        return message
+    def even_chk_part(self,ch):#奇校验部分
+     return ch^(1-[y>0 and 1 or 0 for y in [ch&x for x in (128,64,32,16,8,4,2,1)]].count(1)%2)
+
+    def even_chk(self,chk):#奇校验,16进制未展开，/OX形式
+        return ''.join([chr(self.even_chk_part(ord(x))) for x in chk])
 
     def handle_1E(self,data):
         """
@@ -96,13 +94,6 @@ class Hsm:
             2:错误代码，00表示正确
             16/32/48:转换后KEK或MK加密下的WK
             16:WK校验值
-
-        # clear=0123456789ABCDEF
-        # cipher/MK=1C0BE608104E8118
-        # data clear=0000000000000000
-        # data cipher=D5D44FF720683D0D
-
-        # normal
         req='1E'+'1'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D'
         expect='1F00'+'B6D1898291A4EF73'+'FCB2E54831F3EC60'
         """
@@ -111,48 +102,55 @@ class Hsm:
         if code != '1E':
             return '1F60' #无此命令
         if flag1 not in '12':
-            return '1F26' #加密模式指示域错
+            return '1F77' #非法字符
         if keylen not in '123':
-            return '1F22' #密钥长度与使用模式不符
+            return '1F77' #非法字符
+
+        code2,hexindex = struct.unpack('1s3s',data[currentend:currentend+4])
+
+        #得到KEK干净的密钥
+        if code2 == 'K':#输入索引
+            currentend = currentend+4
+            try:#得到KEK密钥索引
+                keyindex=int(hexindex,16)
+                if keyindex<1 or keyindex>4096:
+                    raise ValueError
+            except ValueError:
+                return '1F33' #密钥索引错
+
+            KEK=self.getkey(keyindex)#取出KEK密钥
+            if(len(KEK)!=int(keylen)*8):
+                return '1F22'#密钥长度与使用模式不符
+
+
+        else:#输入WK加密的KEK
+            KEK_cipher = binascii.unhexlify(data[currentend:currentend+16*int(keylen)])
+            k = pyDes.triple_des(self.HSM['lmk'])#加密机主密钥
+            KEK = k.decrypt(KEK_cipher)#解密KEK
+            currentend = currentend+16*int(keylen)
+        
+        KEK = self.even_chk(KEK)#奇校验KEK
+
+        #取得加密的WK
+        keylen2 = data[currentend]#密文长度
+        currentend = currentend+1
+        if keylen2 not in '123':
+            return '1F77' #非法字符
+
+        cipher = binascii.unhexlify(data[currentend:currentend+16*int(keylen2)])#取出主密钥加密后的密文
+        currentend = currentend+16*int(keylen2)
 
         if flag1 == '1':#MK加密->KEK加密 输入KEK索引或者KEK密钥值
-            code2,hexindex = struct.unpack('1s3s',data[currentend:currentend+4])
-
-            #得到KEK干净的密钥
-            if code2 == 'K':#输入索引
-                currentend = currentend+4
-                try:#得到KEK密钥索引
-                    keyindex=int(hexindex,16)
-                    if keyindex<1 or keyindex>4096:
-                        raise ValueError
-                except ValueError:
-                    return '1F33' #密钥索引错
-
-                KEK=self.getkey(keyindex)#取出KEK密钥
-                #print '1E:KEK:',binascii.hexlify(KEK)
-            else:#输入WK加密的KEK
-                KEK_cipher = binascii.unhexlify(data[currentend:currentend+16*int(keylen)])
-                k = pyDes.triple_des(self.HSM['lmk'])#加密机主密钥
-                KEK = k.decrypt(KEK_cipher)#解密KEK
-                currentend = currentend+16*int(keylen)
-
-            #使用KEK加密WK
-            keylen2 = data[currentend]#密文长度
-            currentend = currentend+1
-            if keylen2 not in '123':
-                return '1F22' #密钥长度与使用模式不符
-
-            cipher = binascii.unhexlify(data[currentend:currentend+16*int(keylen2)])#取出主密钥加密后的密文
-            currentend = currentend+16*int(keylen2)
-            #print '1E cipher:',binascii.hexlify(cipher)
+            #解密MK加密的WK
             k = pyDes.triple_des(self.HSM['lmk'])#加密机主密钥
             clear = k.decrypt(cipher)#解密MK加密密文，得到干净WK
-            #print '1E clear:',binascii.hexlify(clear)
+
+            clear = self.even_chk(clear)#奇校验
 
             left = data[currentend:]#存储新密钥
             if left != '':
                 if left[0]!='K':
-                    return '1F60' #无此命令
+                    return '1F60' #无此命
                 try:#得到存储密钥索引
                     keyindex2=int(left[1:4],16)
                     if keyindex2<1 or keyindex2>4096:
@@ -161,20 +159,12 @@ class Hsm:
                     return '1F33' #密钥索引错
                 self.setkey(keyindex2,clear)
 
-            print 'KEK',binascii.hexlify(KEK).upper()
-            print 'WK',binascii.hexlify(clear).upper()
-            print "keylen",keylen
             #计算结果
             if keylen == '1':#KEK密钥加密WK
                 wk = pyDes.des(KEK)
             else:
                 wk = pyDes.triple_des(KEK)
             message = wk.encrypt(clear)#使用KEK加密后的WK密文
-
-            message2 = self.test_encrypt('1',KEK,clear)
-            
-            print 'message',binascii.hexlify(message).upper()
-            print 'message2',binascii.hexlify(message2).upper()
 
             if keylen2 == '1':#WK校验值
                 wk2 = pyDes.des(clear)
@@ -186,29 +176,15 @@ class Hsm:
 
             return result
 
-        else:#KEK加密->MK加密 输入MK加密KEK密钥
-            KEKchiper = data[currentend:currentend+int(keylen)*16]#MK加密后的KEK密钥
-            currentend = currentend+int(keylen)*16
-
-            k = pyDes.triple_des(self.HSM['lmk'])#加密机主密钥
-            KEKclear = k.decrypt(KEKcipher)#解密MK加密KEK密钥
-            #print '1E KEKclear:',binascii.hexlif(KEKclear)
-
-            keylen2 = data[currentend]#密文长度
-            currentend = currentend+1
-            if keylen2 not in '123':
-                return '1F22' #密钥长度与使用模式不符
-
-            cipher = binascii.unhexlify(data[currentend:currentend+16*int(keylen2)])#取出主密钥加密后的密文
-            currentend = currentend+16*int(keylen2)
-            #print '1E cipher:',binascii.hexlify(cipher)
-
+        else:#KEK加密->MK加密 输入MK加密KEK密钥或者KEK索引
+            #解密KEK加密的WK
             if keylen == '1':
-                KEKkk = pyDes.des(KEKclear)
+                KEKkk = pyDes.des(KEK)
             else:
-                KEKkk = pyDes.triple_des(KEKclear)
-            clear = KEKkk.decrypt(cipher)#解密KEK加密密文
-            #print '1E clear:',binascii.hexlif(clear)
+                KEKkk = pyDes.triple_des(KEK)
+            clear = KEKkk.decrypt(cipher)#解密KEK加密密文，得到干净WK
+
+            clear = self.even_chk(clear)#奇校验
 
             left = data[currentend:]#存储新密钥
             if left != '':
@@ -224,7 +200,7 @@ class Hsm:
 
             k = pyDes.triple_des(self.HSM['lmk'])#加密机主密钥
             message = k.encrypt(clear)#用MK加密新密钥
-            
+
             if keylen2 == '1':#校验新密钥
                 wk2 = pyDes.des(clear)
             else:
@@ -265,6 +241,7 @@ class Hsm:
         k=pyDes.triple_des(self.HSM['lmk'])
         clear=k.decrypt(cipher)
         #print '2A:clear:',binascii.hexlify(clear)
+        clear = self.even_chk(clear)#奇校验
         self.setkey(keyindex,clear)
 
         if keylen=='1':
@@ -769,7 +746,7 @@ if __name__=='__main__':
     #print hsm.handle('8013KFFF002012345678901234567890')
     #test case for handle_82
     #print hsm.handle('8213KFFFBE0AA695002012345678901234567890')
-    print "1E：",hsm.handle('1E'+'1'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D')
+    print "1E：",hsm.handle('1E'+'2'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D')
     print "lmk:",binascii.hexlify(hsm.HSM['lmk']).upper()
-    print "test_encrypt",binascii.hexlify(hsm.test_encrypt('1',binascii.unhexlify('0123456789ABCDEF'),binascii.unhexlify('A7FDB545BACB02DF'))).upper()
+    #print "test_encrypt",binascii.hexlify(hsm.test_encrypt('1',binascii.unhexlify('0123456789ABCDEF'),binascii.unhexlify('A7FDB545BACB02DF'))).upper()
     hsm.save()
