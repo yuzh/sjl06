@@ -28,6 +28,7 @@
 2013/5/30 修改80,82命令 humx
 2013/5/31 修改2C,1E命令 humx
 2013/7/2  修改测试1E命令，2A（增加奇校验）命令 humx
+2013/7/3  修改测试1E命令 humx
 
 """
 import cPickle
@@ -121,8 +122,6 @@ class Hsm:
             KEK=self.getkey(keyindex)#取出KEK密钥
             if(len(KEK)!=int(keylen)*8):
                 return '1F22'#密钥长度与使用模式不符
-
-
         else:#输入WK加密的KEK
             KEK_cipher = binascii.unhexlify(data[currentend:currentend+16*int(keylen)])
             k = pyDes.triple_des(self.HSM['lmk'])#加密机主密钥
@@ -141,73 +140,53 @@ class Hsm:
         currentend = currentend+16*int(keylen2)
 
         if flag1 == '1':#MK加密->KEK加密 输入KEK索引或者KEK密钥值
-            #解密MK加密的WK
-            k = pyDes.triple_des(self.HSM['lmk'])#加密机主密钥
-            clear = k.decrypt(cipher)#解密MK加密密文，得到干净WK
-
-            clear = self.even_chk(clear)#奇校验
-
-            left = data[currentend:]#存储新密钥
-            if left != '':
-                if left[0]!='K':
-                    return '1F60' #无此命
-                try:#得到存储密钥索引
-                    keyindex2=int(left[1:4],16)
-                    if keyindex2<1 or keyindex2>4096:
-                        raise ValueError
-                except ValueError:
-                    return '1F33' #密钥索引错
-                self.setkey(keyindex2,clear)
-
-            #计算结果
-            if keylen == '1':#KEK密钥加密WK
-                wk = pyDes.des(KEK)
-            else:
-                wk = pyDes.triple_des(KEK)
-            message = wk.encrypt(clear)#使用KEK加密后的WK密文
-
-            if keylen2 == '1':#WK校验值
-                wk2 = pyDes.des(clear)
-            else:
-                wk2 = pyDes.triple_des(clear)
-            check=wk2.encrypt('\x00'*8)
-
-            result='1F00'+binascii.hexlify(message).upper()+binascii.hexlify(check).upper()
-
-            return result
-
+            old_key = self.HSM['lmk']
+            old_key_len = '3'
+            new_key = KEK
+            new_key_len = keylen
         else:#KEK加密->MK加密 输入MK加密KEK密钥或者KEK索引
-            #解密KEK加密的WK
-            if keylen == '1':
-                KEKkk = pyDes.des(KEK)
-            else:
-                KEKkk = pyDes.triple_des(KEK)
-            clear = KEKkk.decrypt(cipher)#解密KEK加密密文，得到干净WK
+            old_key = KEK
+            old_key_len = keylen
+            new_key = self.HSM['lmk']
+            new_key_len = '3'
 
-            clear = self.even_chk(clear)#奇校验
+        #解密加密后的WK
+        if old_key_len == '1':
+            k = pyDes.des(old_key)
+        else:
+            k = pyDes.triple_des(old_key)    
+        clear = k.decrypt(cipher)#解密KEK加密密文，得到干净WK
+        
+        clear = self.even_chk(clear)#奇校验
+        
+        left = data[currentend:]#存储新密钥
+        if left != '':
+            if left[0]!='K':
+                return '1F60' #无此命令
+            try:#得到存储密钥索引
+                keyindex2=int(left[1:4],16)
+                if keyindex2<1 or keyindex2>4096:
+                    raise ValueError
+            except ValueError:
+                return '1F33' #密钥索引错
+            self.setkey(keyindex2,clear)
 
-            left = data[currentend:]#存储新密钥
-            if left != '':
-                if left[0]!='K':
-                    return '1F60' #无此命令
-                try:#得到存储密钥索引
-                    keyindex2=int(left[1:4],16)
-                    if keyindex2<1 or keyindex2>4096:
-                        raise ValueError
-                except ValueError:
-                    return '1F33' #密钥索引错
-                self.setkey(keyindex2,clear)
+        #计算结果
+        if new_key_len == '1':#新密钥K密钥加密WK
+            wk = pyDes.des(new_key)
+        else:
+            wk = pyDes.triple_des(new_key)
+        message = wk.encrypt(clear)#使用KEK加密后的WK密文
 
-            k = pyDes.triple_des(self.HSM['lmk'])#加密机主密钥
-            message = k.encrypt(clear)#用MK加密新密钥
+        if keylen2 == '1':#WK校验值
+            wk2 = pyDes.des(clear)
+        else:
+            wk2 = pyDes.triple_des(clear)
+        check=wk2.encrypt('\x00'*8)
 
-            if keylen2 == '1':#校验新密钥
-                wk2 = pyDes.des(clear)
-            else:
-                wk2 = pyDes.triple_des(clear)
-            check=wk2.encrypt('\x00'*8)
-            result='1F00'+binascii.hexlify(message).upper()+binascii.hexlify(check).upper()
-            return result
+        result='1F00'+binascii.hexlify(message).upper()+binascii.hexlify(check).upper()
+
+        return result        
 
     def handle_2A(self,data):
         """
@@ -746,7 +725,7 @@ if __name__=='__main__':
     #print hsm.handle('8013KFFF002012345678901234567890')
     #test case for handle_82
     #print hsm.handle('8213KFFFBE0AA695002012345678901234567890')
-    print "1E：",hsm.handle('1E'+'2'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D')
+    print "1E：",hsm.handle('1E'+'1'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D')
     print "lmk:",binascii.hexlify(hsm.HSM['lmk']).upper()
     #print "test_encrypt",binascii.hexlify(hsm.test_encrypt('1',binascii.unhexlify('0123456789ABCDEF'),binascii.unhexlify('A7FDB545BACB02DF'))).upper()
     hsm.save()
