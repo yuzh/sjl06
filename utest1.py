@@ -6,6 +6,7 @@ import emu_hsm
 2013-5-23 初次创建
 2013-5-29 humx 新增62测试
 2013-5-30 humx 新增68,,80,82测试
+2013-7-5 humx 修改68,80,82测试
 """
 HSM=emu_hsm.Hsm('10.112.9.249.hsm')
 class HsmFunctionTest(unittest.TestCase):
@@ -111,9 +112,18 @@ class HsmFunctionTest(unittest.TestCase):
 		#MAC算法：2，AIX 9.9
 		#MAC数据长度：16
 		#MAC数据：0123456789ABCDEF
+		req='80130123456789ABCDEFFEDCBA98765432101357902468ABCDEF00200123456789ABCDEF1234'
+ 		expect='8100FD162D99540B9275'
+		ret=self.hsm.handle(req)
+		self.assertEqual(ret,expect)
 
-		req='80'+'2'+'1'+'K'+'20D'+'0020'+'0123456789ABCDEF1234'
-		expect = '81007DC7E694151E8E42'
+		req='80'+'2'+'1'+'0123456789ABCDEF'+'0020'+'0123456789ABCDEF1234'
+		expect = '81002E59968CE674BFE5'
+		ret=self.hsm.handle(req)
+		self.assertEqual(ret,expect)
+
+		req='80320123456789ABCDEFFEDCBA987654321000200123456789ABCDEF1234'
+ 		expect='81003C5CE4A83C1D40B6'
 		ret=self.hsm.handle(req)
 		self.assertEqual(ret,expect)
 
@@ -124,7 +134,7 @@ class HsmFunctionTest(unittest.TestCase):
 		#MAC数据长度：16
 		#MAC数据：0123456789ABCDEF
 
-		req='82'+'2'+'1'+'K'+'20D'+'7DC7E694'+'0020'+'0123456789ABCDEF1234'
+		req='82'+'2'+'1'+'0123456789ABCDEF'+'2E59968C'+'0020'+'0123456789ABCDEF1234'
 		expect = '83'+'00'
 		ret=self.hsm.handle(req)
 		self.assertEqual(ret,expect)
