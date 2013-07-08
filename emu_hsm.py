@@ -31,7 +31,8 @@
 2013/7/3  修改测试1E命令 humx
 2013/7/4  修改2A，3A humx
 2013/7/5  修改80,82，输入计算MAC的数据是裸字符串（无需unhexfily)
-
+2013/7/8  修改60命令，01.03.04格式本身正确，02，05格式文档有问题，06格式修改正确
+2013/7/8  修改62,68命令。问题同60
 """
 import cPickle
 import pyDes
@@ -349,6 +350,12 @@ class Hsm:
             16：加密后的pin模块
 
             01,03，04正确
+            02格式按算法描述因为正确，需确认算法,根据结果反推出填充字符为“E95D0B5B0”,文档为‘987654321’
+            05命令填充字符串为随机字符串，因此结果总是不同，但是目前实体机计算过程中算法与稳定说明不同，
+                通过结果反算发现为直接将PIN码和填充字符‘F'用PIK加密后生成。如:
+                    05:req:6010123456789ABCDEF05123456FFFFFF
+                    expect:6100B8C894DF3692B056
+            06命令修改完成
        """
         code,keylen = struct.unpack('2s1s',data[:3])
         if code != '60':
@@ -402,17 +409,17 @@ class Hsm:
         except ValueError:
             return '6128'#PIN 格式错误
         encrypted_pin =binascii.hexlify(pik.encrypt(binascii.unhexlify(pin_block))).upper() 
-        result = '6100%s'%(encrypted_pin)
+        result = '6100'+encrypted_pin
         decrypted_pin = pik.decrypt(binascii.unhexlify(encrypted_pin))
         return result
 
     def handle_62(self,data):
         """
          (62/63)   转换PIN 从一个区域到另一个区域
-                   密码机将输入的PIN块的密文用密钥1解密，进行格式转换后，用密钥2加密输出。）
-        输入指令：
-
-        输出结果：
+                   密码机将输入的PIN块的密文用密钥1解密，进行格式转换后，用密钥2加密输出。
+        
+        需要明确，文档中存在一个附加字段，只有当格式为01或者04时才会存在，但是这个无法确定是原格式还是目标格式
+        根据实际结果可得，先取源格式，后取目的格式，当有一个不符合则报错，因此，当均需要附加字段时，只有04-》01,附加为18位命令可成功
         """
         code = data[:2]
         if code != '62':
@@ -466,45 +473,65 @@ class Hsm:
             return '6328' #PIN 格式错误
         if not dst_pin_fmt in ['01','02','03','04','05','06']:
             return '6328' #PIN 格式错误
-        
-        #get pin account base on which pin format? src pin format or dst pin format?
 
-        pin_account = ''
+
+        pin_src_account = ''
         if src_pin_fmt == '01':
-            pin_account =data[next_field:]
-            if len(pin_account) != 12:
+            pin_src_account =data[next_field:]
+            if len(pin_src_account) > 12:
                 return '6328' #PIN 格式错误
+            if len(pin_src_account) < 12:
+                    return '6361' #消息太短
         if src_pin_fmt == '04':
-            pin_account = data[next_field:]
-            if len(pin_account) != 18:
+            pin_src_account = data[next_field:]
+            if len(pin_src_account) < 18:
+                return '6361' #消息太短
+            if len(pin_src_account) > 18:
                 return '6328' #PIN 格式错误
 
+        pin_dst_account=''
+        if dst_pin_fmt == '01':
+            pin_dst_account =data[next_field:]
+            if len(pin_dst_account)!=12:
+                if len(pin_dst_account) < 12:
+                    return '6361' #消息太短
+                if len(pin_dst_account) == 18 and src_pin_fmt =='04':
+                    pin_des_account = data[next_field:next_field+12]
+                else:
+                    return '6328'
+        if dst_pin_fmt == '04':
+            pin_dst_account = data[next_field:]
+            if len(pin_dst_account) < 18:
+                return '6361' #消息太短
+            if len(pin_dst_account) > 18:
+                return '6328' #PIN 格式错误
 
         #用密钥1解密PIN块密文
         if(keylen_1 == '1'):
             k1 = pyDes.des(wk_1)
         else:
             k1 = pyDes.triple_des(wk_1)
-        pin_uncipher = binascii.hexlify(k1.decrypt(binascii.unhexlify(hex_cipher_pin)))
+        pin_uncipher = binascii.hexlify(k1.decrypt(binascii.unhexlify(hex_cipher_pin))).upper()
         
         #转换pin格式
         pin = myPin()
         #利用源格式解码
-        pin_code = pin.de_format(src_pin_fmt,pin_uncipher,pin_account)
+        pin_code = pin.de_format(src_pin_fmt,pin_uncipher,pin_src_account)
+
         #利用目的格式编码
-        converted_pin = myPin(pin_code,pin_account,dst_pin_fmt)
+        converted_pin = myPin(pin_code,pin_dst_account,dst_pin_fmt)
         pin_formatted = converted_pin.format()
-        
 
         #用密钥2加密格式转换后的pin
         if keylen_2 == '1':
             k2 = pyDes.des(wk_2)
         else:
             k2 = pyDes.triple_des(wk_2)
-        result = '6300%s'%(binascii.hexlify(k2.encrypt(pin_formatted)).upper())
+        pin_result = k2.encrypt(binascii.unhexlify(pin_formatted))
+        result = '6300'+binascii.hexlify(pin_result).upper()
         return result
 
-    def handle_68(self,data):#待完成
+    def handle_68(self,data):
         """
          (68/69)   解密一个PIN
         输入指令：
@@ -728,12 +755,33 @@ if __name__=='__main__':
     #test case for handle_82
     #print hsm.handle('8213KFFFBE0AA695002012345678901234567890')
     print '6001:',hsm.handle('6010123456789ABCDEF01123456FFFFFF012345678901')
+    print '6801:',hsm.handle('6810123456789ABCDEF011781BDB51C54F3D5012345678901')
+
     print '6002:',hsm.handle('6010123456789ABCDEF02123456FFFFFF')
+    print '6802:',hsm.handle('6810123456789ABCDEF027D0888BC40A5AD63')
+
     print '6003:',hsm.handle('6010123456789ABCDEF03123456FFFFFF')
+    print '6803:',hsm.handle('6810123456789ABCDEF03B8C894DF3692B056')
+
     print '6004:',hsm.handle('6010123456789ABCDEF04123456FFFFFF012345678901234567')
+    print '6804:',hsm.handle('6810123456789ABCDEF041781BDB51C54F3D5012345678901234567')
+
     print '6005:',hsm.handle('6010123456789ABCDEF05123456FFFFFF')
+    print '6805:',hsm.handle('6810123456789ABCDEF05B8C894DF3692B056')
+
     print '6006:',hsm.handle('6010123456789ABCDEF06123456FFFFFF')
+    print '6806:',hsm.handle('6810123456789ABCDEF06AE8F86D7DE61211C')
+
     print '6007:',hsm.handle('6010123456789ABCDEF07123456FFFFFF')
+
+    print '62 01-06:',hsm.handle('6210123456789ABCDEF1FEDCBA987654321001061781BDB51C54F3D5012345678901')
+    print '62 03-01:',hsm.handle('6210123456789ABCDEF1FEDCBA98765432100301B8C894DF3692B056012345678901')
+    print '62 01-04 12:',hsm.handle('6210123456789ABCDEF1FEDCBA987654321001041781BDB51C54F3D5012345678901')
+    print '62 01-04 18:',hsm.handle('6210123456789ABCDEF1FEDCBA987654321001041781BDB51C54F3D5012345678901234567')
+    print '62 04-01 12:',hsm.handle('6210123456789ABCDEF1FEDCBA987654321004011781BDB51C54F3D5012345678901')
+    print '62 04-01 18:',hsm.handle('6210123456789ABCDEF1FEDCBA987654321004011781BDB51C54F3D5012345678901234567')
+
+
     print '80:',hsm.handle('8031FEDCBA987654321000200123456789ABCDEF1234')
     print "1E：",hsm.handle('1E'+'1'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D')
     print "lmk:",binascii.hexlify(hsm.HSM['lmk']).upper()
