@@ -2,6 +2,7 @@
 """
 2013/5/18 humx complete
 2013/5/30 humx 修改xor函数，三种MAC算法
+2013/7/5  humx 说明：输入的是裸字符串和裸字符串长度（unhexlify后的字符串）
 """
 import pyDes
 import binascii 

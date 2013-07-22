@@ -1,7 +1,7 @@
 #encoding=utf-8
 """
 2013/5/17 humx complete
-
+2013/7/8 humx 修改pin命令
 """
 import random
 
@@ -142,7 +142,7 @@ class myPin:
         if len_pin > 12:
             raise ValueError("Invalid pin length")
         
-        pin_block = "1%s%s%s"%(hex(len(self.pin_code))[2:].upper(),self.pin_code,(16-2-len_pin)*'F')
+        pin_block = "0%s%s%s"%(hex(len(self.pin_code))[2:].upper(),self.pin_code,(16-2-len_pin)*'F')
         return pin_block
     
     def de_format_06(self,pin_block,pin_account=''):
