@@ -282,56 +282,14 @@ class Hsm:
             return '6160' #无此命令
         #取得工作密钥
         if data[3] == 'K':
-            hexindex = data[4:7]
-            keyindex = int(hexindex,16)
-            next_field = 7
-            if keyindex<1 or keyindex>4096:
-                return '6133' #密钥索引错
-            working_key = self.getkey(keyindex) 
+            keyindex = int(data[4:7],16)
+            cipher,check = self.KEYS.get(keyindex,(None,None))
+            if not cipher:
+                return '6102'
+            buf=data[:3]+cipher+data[7:]
         else:
-            if keylen not in '123':
-                return '6122'#密钥长度与使用模式不符
-            hex_cipher_len = int(keylen)*16
-            cipher = binascii.unhexlify(data[3:3+hex_cipher_len])
-            if len(cipher) != int(keylen)*8:
-                return '6122'#密钥长度与使用模式不符
-            next_field = 3+hex_cipher_len
-            k = pyDes.triple_des(self.HSM['lmk']) 
-            working_key = k.decrypt(cipher)
-
-        if(keylen == '1'):
-            pik = pyDes.des(working_key)
-        else:
-            pik = pyDes.triple_des(working_key)
-
-        pin_fmt = data[next_field:next_field+2]
-        next_field += 2
-        pin_field = data[next_field:next_field+12] 
-        next_field += 12
-        pin_code = filter(lambda x: x<'F',pin_field)        
-        pin_account = ''
-
-        if not pin_fmt in ['01','02','03','04','05','06']:
-            return '6128' #PIN 格式错误
-        else:
-            if pin_fmt == '01':
-                pin_account =data[next_field:]
-                if len(pin_account) != 12:
-                    return '6128' #PIN 格式错误
-            if pin_fmt == '04':
-                pin_account = data[next_field:]
-                if len(pin_account) != 18:
-                    return '6128' #PIN 格式错误
-        
-        pin = myPin(pin_code,pin_account,pin_fmt)
-        try: 
-            pin_block = pin.format()
-        except ValueError:
-            return '6128'#PIN 格式错误
-        encrypted_pin =binascii.hexlify(pik.encrypt(binascii.unhexlify(pin_block))).upper() 
-        result = '6100'+encrypted_pin
-        decrypted_pin = pik.decrypt(binascii.unhexlify(encrypted_pin))
-        return result
+            buf=data
+        return self.send(buf)
 
     def handle_62(self,data):
         """
@@ -569,4 +527,8 @@ if __name__=='__main__':
     hsm.save()
     print('80',hsm.handle('80130123456789ABCDEFFEDCBA98765432101357902468ABCDEF00200123456789ABCDEF1234')) # '8100FD162D99540B9275'
     print('80',hsm.handle('8011K1BB00200123456789ABCDEF1234')) # '810039B70D348B24E488'
+    print('60',hsm.handle('6010123456789ABCDEF05123456FFFFFF')) # random
+    print('60',hsm.handle('6010123456789ABCDEF03123456FFFFFF')) # '6100B8C894DF3692B056'
+    print('60',hsm.handle('601K1BB03123456FFFFFF')) # '6100F6649CD87D6182D5'
+    print('60',hsm.handle('601K1BB01123456FFFFFF012345678901')) # '6100D4011ADB85F14AA6'
     hsm.close()
