@@ -20,18 +20,19 @@ import socket
 
 class Hsm:
     def __init__(self,conf):
-        self.hsmfile=conf.get('hsm_data','10.112.9.249.hsm')
+        self.hsmfile=conf.get('hsm_data','9.249.keys')
         self.load(self.hsmfile)
         hsm_ip=conf.get('real_hsm_ip','10.112.18.22')
         hsm_port=int(conf.get('real_hsm_port','10010'))
         self.hsm_prefix=conf.get('hsm_prefix','001001')
+        self.reserve_index=int(conf.get('reserve_index','4095'))
 
         try:
             self.hsm_sock=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.hsm_sock.connect((hsm_ip,hsm_port))
         except socket.error as msg:
             self.hsm_sock=None
-            print msg
+            print('connect %s:%d error!'%(hsm_ip,hsm_port),msg)
 
         self.FuncMap={}
         # 查找Hsm类中所有形如handle_XX的函数，注册到函数映射表中
@@ -41,7 +42,7 @@ class Hsm:
         for f in funcs:
             self.FuncMap[f[-2:]]=getattr(self,f)
 
-    def __del__(self):
+    def close(self):
         if self.hsm_sock:
             print('close the socket')
             self.hsm_sock.close()
@@ -50,6 +51,8 @@ class Hsm:
         buf=self.hsm_prefix+data
         buf=struct.pack('>h',len(buf))+buf
         self.hsm_sock.send(buf)
+        pkglen,pkg=self.recv()
+        return pkg
 
     def recv(self):
         buf=self.hsm_sock.recv(8192)
@@ -70,18 +73,7 @@ class Hsm:
             return None
 
     def handle_HR(self,data):
-        """
-        （HR/HS）   读密码机信息
-        输入指令：2，"HR"
-        输出结果：2+2+16+n
-            2:"HS"
-            2:错误代码，00表示正确
-            16:主密钥加密64bit0的结果
-            n:返回密码机程序版本号等信息
-        """
-        self.send('HR')
-        result=self.recv()
-        return result
+        return self.send('HR')
 
     def even_chk_part(self,ch):#奇校验部分
      return ch^(1-[y>0 and 1 or 0 for y in [ch&x for x in (128,64,32,16,8,4,2,1)]].count(1)%2)
@@ -224,23 +216,13 @@ class Hsm:
         if keylen not in '123':
             return '2B22' #密钥长度与使用模式不符
         
-        cipher=binascii.unhexlify(data[7:])
-        #print '2A:cipher:',binascii.hexlify(cipher)
-        if len(cipher)!=int(keylen)*8:
-            return '2B22' #密钥长度与使用模式不符
-        k=pyDes.triple_des(self.HSM['lmk'])
-        clear=k.decrypt(cipher)
-        #print '2A:clear:',binascii.hexlify(clear)
-        clear = self.even_chk(clear)#奇校验
-        self.setkey(keyindex,clear)
-
-        if keylen=='1':
-            wk=pyDes.des(clear)
-        else:
-            wk=pyDes.triple_des(clear)
-        check=wk.encrypt('\x00'*8)
-        result='2B00'+binascii.hexlify(check).upper()
-        return result           
+        cipher=data[7:]
+        buf=code+'%03X'%(self.reserve_index)+keylen+cipher
+        pkg=self.send(buf)
+        if pkg[:4]=='2B00':
+            check=pkg[2:]
+            self.KEYS[keyindex]=(cipher,check)
+        return pkg
 
     def handle_2C(self,data):
         """
@@ -266,81 +248,11 @@ class Hsm:
         except ValueError:
             return '2D33' #密钥索引错
         
-        clear=self.getkey(keyindex)#取出密钥
-       # print '2C:clear:',binascii.hexlify(clear)
-        k=pyDes.triple_des(self.HSM['lmk'])#使用MK加密密钥
-        cipher = k.encrypt(clear)
-       # print '2C:cipher:',binascii.hexlify(cipher)
-        if len(cipher)%8!=0:#生成密钥长度
-            return '2D22'#密钥长度与使用模式不符
-        keylen='0'
-        if len(cipher)==8:
-            keylen='1'
-        if len(cipher)==16:
-            keylen='2'
-        if len(cipher)==24:
-            keylen='3'
-
-        if keylen=='0':
-            return '2D22'#密钥长度与使用模式不符
-        if keylen=='1':#生成校验码
-            wk=pyDes.des(clear)
-        else:
-            wk=pyDes.triple_des(clear)
-        check=wk.encrypt('\x00'*8)
-
-        result='2D00'+keylen+binascii.hexlify(cipher).upper()+binascii.hexlify(check).upper()
+        cipher,check=self.KEYS.get(keyindex)#取出密钥
+        keylen='%1d'%(len(cipher)/16)
+        result='2D00'+keylen+cipher.upper()+check.upper()
         return result
 
-    def handle_3A(self,data):
-        """
-        （3A/3B）   生成密钥的校验值
-        输入指令：2+1+（1A+3H）/16/32/48
-            2:"3A"
-            1:1->64bit,2->128bit,3->192bit
-            4:"K"+3位16进制索引号(密钥在密码机中要存放的位置（如：K001）) 16/32/48:用主密钥加密的工作密钥密文
-        输出结果：2+2+16
-            2:‘3B’
-            2:错误代码，00表示正确
-            16:单、双、三倍长密钥加密64比特 0的结果。
-        """   
-        code,keylen,flagindex=struct.unpack('2s1s1s',data[:4])
-        if code!='3A':
-            return '3B60' #无此命令
-        if keylen not in '123':
-            return '3B22' #密钥长度与使用模式不符
-        if flagindex=='K':#输入索引
-            #temp1,temp2 = struct.unpack('2s1s',data[4:7])
-            #hexindex=temp1+temp2
-            #print '3A  hexindex:',hexindex
-            hexindex = data[4:7]
-            try:
-                keyindex=int(hexindex,16)
-                if keyindex<1 or keyindex>4096:
-                    raise ValueError
-            except ValueError:
-                return '3B33' #密钥索引错
-            clear=self.getkey(keyindex)#取出密钥
-            #print '3A:clear:',binascii.hexlify(clear)
-            if len(clear)!=int(keylen)*8:
-                return '3B22' #密钥长度与使用模式不符    
-        else:#输入MK加密的密钥
-            cipher=binascii.unhexlify(data[3:])
-            #print '3A:cipher:',binascii.hexlify(cipher)
-            if len(cipher)!=int(keylen)*8:
-                return '3B22' #密钥长度与使用模式不符
-            k=pyDes.triple_des(self.HSM['lmk'])
-            clear=k.decrypt(cipher)#解密成明文
-            #print '3A:clear:',binascii.hexlify(clear)
-
-        if keylen=='1':
-            wk=pyDes.des(clear)
-        else:
-            wk=pyDes.triple_des(clear)
-        check=wk.encrypt('\x00'*8)
-        result='3B00'+binascii.hexlify(check).upper()
-        return result            
-    
     def handle_60(self,data):
         """
          （60/61）   加密一个PIN
@@ -720,28 +632,16 @@ class Hsm:
 
     def load(self,fname):
         try:
-            self.HSM=cPickle.load(open(fname))
+            self.KEYS=cPickle.load(open(fname))
         except:
-            self.HSM={\
-                'lmk':'\x11'*24,\
-                'password':'FFFFFFFF',\
-                'authorized':False,\
-                'keys':{},\
-                'whitelist':[],\
-                }
+            self.KEYS={}
 
     def save(self):
         try:
-            cPickle.dump(self.HSM,open(self.hsmfile,'w'))
+            cPickle.dump(self.KEYS,open(self.hsmfile,'w'))
         except IOError:
             print('save hsm to %s failed!'%self.hsmfile)
-			#pass
 
-    def getkey(self,i):
-        return self.HSM['keys'].get(i)
-
-    def setkey(self,i,v):
-        self.HSM['keys'][i]=v
 
 
 def loadConfig(fname):
@@ -752,3 +652,12 @@ if __name__=='__main__':
     conf=loadConfig('emu.conf')
     hsm=Hsm(conf)
     print('HR',hsm.handle('HR'))
+    #clear is 8989898989898989,check is F9F4FBD3C9CC8CCC
+    print('2A',hsm.handle('2AK1BB157D91AB49FA4701D'))
+    print('2C',hsm.handle('2CK1BB'))
+    t=raw_input()
+    #clear is 1010101010101010,check is 82E13665B4624DF5
+    print('2A',hsm.handle('2AK1BB158A1F5BB37961805'))
+    print('2C',hsm.handle('2CK1BB'))
+    hsm.save()
+    hsm.close()

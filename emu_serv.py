@@ -41,6 +41,7 @@ class EmuHandler(asyncore.dispatcher_with_send):
         if cmd[0]=='exit':
             self.send(gen_pkg('bye'))
             self.close()
+            self.hsm.close()
             print('HSM EMU Server shutdown!')
             exit(0)
         elif cmd[0]=='help':
@@ -115,7 +116,7 @@ def loadConfig(fname):
     real_hsm_ip=10.112.18.22
     real_hsm_port=10091
     hsm_prefix=001001
-    hsm_data=10.112.9.249.hsm
+    hsm_data=9.249.keys
     """
     buf=open(fname).readlines()
     return dict([x.strip().split('=') for x in buf])
