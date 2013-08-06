@@ -12,10 +12,7 @@
 2013/8/6 重构代码，通过实体加密机实现指令功能
 """
 import cPickle
-import pyDes
-import binascii
 import struct
-import random
 import socket
 
 class Hsm:
@@ -101,95 +98,32 @@ class Hsm:
         req='1E'+'1'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D'
         expect='1F00'+'B6D1898291A4EF73'+'FCB2E54831F3EC60'
         """
-        code,flag1,keylen = struct.unpack('2s1s1s',data[:4])
-        currentend = 4
+        code,flag = struct.unpack('2s1s',data[:3])
         if code != '1E':
             return '1F60' #无此命令
-        if flag1 not in '12':
+        if flag not in '12':
             return '1F77' #非法字符
-        if keylen not in '123':
-            return '1F77' #非法字符
+        rest = data[3:]
+        try:
+            keylen=rest[0]
+            cipher,rest=self.replace_key(rest)
+        except ValueError as e:
+            return '1E'+e[0]
+        try:
+            wklen=rest[0]
+            wk,rest=self.replace_key(rest)
+        except ValueError as e:
+            return '1E'+e[0]
 
-        code2,hexindex = struct.unpack('1s3s',data[currentend:currentend+4])
-
-        #得到KEK干净的密钥
-        if code2 == 'K':#输入索引
-            currentend = currentend+4
-            try:#得到KEK密钥索引
-                keyindex=int(hexindex,16)
-                if keyindex<1 or keyindex>4096:
-                    raise ValueError
-            except ValueError:
-                return '1F33' #密钥索引错
-
-            KEK=self.getkey(keyindex)#取出KEK密钥
-            if(len(KEK)!=int(keylen)*8):
-                return '1F22'#密钥长度与使用模式不符
-        else:#输入WK加密的KEK
-            KEK_cipher = binascii.unhexlify(data[currentend:currentend+16*int(keylen)])
-            k = pyDes.triple_des(self.HSM['lmk'])#加密机主密钥
-            KEK = k.decrypt(KEK_cipher)#解密KEK
-            currentend = currentend+16*int(keylen)
-        
-        KEK = self.even_chk(KEK)#奇校验KEK
-
-        #取得加密的WK
-        keylen2 = data[currentend]#密文长度
-        currentend = currentend+1
-        if keylen2 not in '123':
-            return '1F77' #非法字符
-
-        cipher = binascii.unhexlify(data[currentend:currentend+16*int(keylen2)])#取出主密钥加密后的密文
-        currentend = currentend+16*int(keylen2)
-
-        if flag1 == '1':#MK加密->KEK加密 输入KEK索引或者KEK密钥值
-            old_key = self.HSM['lmk']
-            old_key_len = '3'
-            new_key = KEK
-            new_key_len = keylen
-        else:#KEK加密->MK加密 输入MK加密KEK密钥或者KEK索引
-            old_key = KEK
-            old_key_len = keylen
-            new_key = self.HSM['lmk']
-            new_key_len = '3'
-
-        #解密加密后的WK
-        if old_key_len == '1':
-            k = pyDes.des(old_key)
-        else:
-            k = pyDes.triple_des(old_key)    
-        clear = k.decrypt(cipher)#解密KEK加密密文，得到干净WK
-        
-        clear = self.even_chk(clear)#奇校验
-        
-        left = data[currentend:]#存储新密钥
-        if left != '':
-            if left[0]!='K':
-                return '1F60' #无此命令
-            try:#得到存储密钥索引
-                keyindex2=int(left[1:4],16)
-                if keyindex2<1 or keyindex2>4096:
-                    raise ValueError
-            except ValueError:
-                return '1F33' #密钥索引错
-            self.setkey(keyindex2,clear)
-
-        #计算结果
-        if new_key_len == '1':#新密钥K密钥加密WK
-            wk = pyDes.des(new_key)
-        else:
-            wk = pyDes.triple_des(new_key)
-        message = wk.encrypt(clear)#使用KEK加密后的WK密文
-
-        if keylen2 == '1':#WK校验值
-            wk2 = pyDes.des(clear)
-        else:
-            wk2 = pyDes.triple_des(clear)
-        check=wk2.encrypt('\x00'*8)
-
-        result='1F00'+binascii.hexlify(message).upper()+binascii.hexlify(check).upper()
-
-        return result        
+        buf='1E'+flag+keylen+cipher+wklen+wk+rest
+        print('debug handle_1E',buf)
+        pkg=self.send(buf)
+        if pkg[:4]=='1F00' and rest and rest[0]=='K': #save result to hsm
+            cipher = pkg[4:4+int(wklen)*16]
+            check = pkg[4+int(wklen)*16:]
+            keyindex = int(rest[1:4],16)
+            self.KEYS[keyindex]=(cipher,check)
+        return pkg
 
     def handle_2A(self,data):
         """
@@ -253,6 +187,27 @@ class Hsm:
         result='2D00'+keylen+cipher.upper()+check.upper()
         return result
 
+    def replace_key(self,data):
+        rest=data
+        keylen = rest[0]
+        rest = rest[1:]
+        #print('debug replace_key',keylen,rest)
+        if keylen not in '123':
+            raise ValueError('22')
+
+        if rest[0] == 'K':
+            keyindex = int(rest[1:4],16)
+            #print('debug replace_key',keyindex)
+            cipher,check = self.KEYS.get(keyindex,(None,None))
+            if not cipher:
+                raise ValueError('02')
+            else:
+                rest=rest[4:]
+        else:
+            cipher=rest[:int(keylen)*16]
+            rest=rest[int(keylen)*16:]
+        return cipher,rest
+
     def handle_60(self,data):
         """
          （60/61）   加密一个PIN
@@ -299,175 +254,21 @@ class Hsm:
         需要明确，文档中存在一个附加字段，只有当格式为01或者04时才会存在，但是这个无法确定是原格式还是目标格式
         根据实际结果可得，先取源格式，后取目的格式，当有一个不符合则报错，因此，当均需要附加字段时，只有04-》01,附加为18位命令可成功
         """
-        code = data[:2]
-        if code != '62':
-            return '6362'
+        rest=data[2:]
+        try:
+            keylen1=rest[0]
+            cipher1,rest=self.replace_key(rest)
+        except ValueError as e:
+            return '62'+e[0]
+        try:
+            keylen2=rest[0]
+            cipher2,rest=self.replace_key(rest)
+        except ValueError as e:
+            return '62'+e[0]
+        buf='62'+keylen1+cipher1+keylen2+cipher2+rest
+        return self.send(buf)
 
-        keylen_1 = data[2]
-        if data[3] == 'K':
-            hexindex = data[4:7]
-            keyindex = int(hexindex,16)
-            next_field = 7
-            if keyindex<1 or keyindex>4096:
-                return '6333' #密钥索引错
-            wk_1 = self.getkey(keyindex) #wk_1 工作密钥1
-        else:
-            if keylen_1 not in '123':
-                return '6322'#密钥长度与使用模式不符
-            hex_cipher_len = int(keylen_1)*16
-            cipher = binascii.unhexlify(data[3:3+hex_cipher_len])
-            if len(cipher) != int(keylen_1)*8:
-                return '6322'#密钥长度与使用模式不符
-            next_field = 3+hex_cipher_len
-            k = pyDes.triple_des(self.HSM['lmk']) 
-            wk_1 = k.decrypt(cipher)
-
-        keylen_2 = data[next_field]
-        next_field += 1
-        if data[next_field] == 'K':
-            next_field += 1
-            hexindex = data[next_field:next_field+3]
-            keyindex = int(hexindex,16)
-            next_field += 3 
-            if keyindex<1 or keyindex>4096:
-                return '6333' #密钥索引错
-            wk_2 = self.getkey(keyidnex) #wk_1 工作密钥1
-        else:
-            if keylen_2 not in '123':
-                return '6322'#密钥长度与使用模式不符
-            hex_cipher_len = int(keylen_2)*16
-            cipher = binascii.unhexlify(data[next_field:next_field+hex_cipher_len])
-            if len(cipher) != int(keylen_2)*8:
-                return '6322'#密钥长度与使用模式不符
-            next_field += hex_cipher_len
-            k = pyDes.triple_des(self.HSM['lmk']) 
-            wk_2 = k.decrypt(cipher)
-       
-
-        src_pin_fmt,dst_pin_fmt,hex_cipher_pin = struct.unpack('2s2s16s',data[next_field:next_field+20])
-
-        next_field += 20
-        if not src_pin_fmt in ['01','02','03','04','05','06']:
-            return '6328' #PIN 格式错误
-        if not dst_pin_fmt in ['01','02','03','04','05','06']:
-            return '6328' #PIN 格式错误
-
-
-        pin_src_account = ''
-        if src_pin_fmt == '01':
-            pin_src_account =data[next_field:]
-            if len(pin_src_account) > 12:
-                return '6328' #PIN 格式错误
-            if len(pin_src_account) < 12:
-                    return '6361' #消息太短
-        if src_pin_fmt == '04':
-            pin_src_account = data[next_field:]
-            if len(pin_src_account) < 18:
-                return '6361' #消息太短
-            if len(pin_src_account) > 18:
-                return '6328' #PIN 格式错误
-
-        pin_dst_account=''
-        if dst_pin_fmt == '01':
-            pin_dst_account =data[next_field:]
-            if len(pin_dst_account)!=12:
-                if len(pin_dst_account) < 12:
-                    return '6361' #消息太短
-                if len(pin_dst_account) == 18 and src_pin_fmt =='04':
-                    pin_des_account = data[next_field:next_field+12]
-                else:
-                    return '6328'
-        if dst_pin_fmt == '04':
-            pin_dst_account = data[next_field:]
-            if len(pin_dst_account) < 18:
-                return '6361' #消息太短
-            if len(pin_dst_account) > 18:
-                return '6328' #PIN 格式错误
-
-        #用密钥1解密PIN块密文
-        if(keylen_1 == '1'):
-            k1 = pyDes.des(wk_1)
-        else:
-            k1 = pyDes.triple_des(wk_1)
-        pin_uncipher = binascii.hexlify(k1.decrypt(binascii.unhexlify(hex_cipher_pin))).upper()
-        
-        #转换pin格式
-        pin = myPin()
-        #利用源格式解码
-        pin_code = pin.de_format(src_pin_fmt,pin_uncipher,pin_src_account)
-
-        #利用目的格式编码
-        converted_pin = myPin(pin_code,pin_dst_account,dst_pin_fmt)
-        pin_formatted = converted_pin.format()
-
-        #用密钥2加密格式转换后的pin
-        if keylen_2 == '1':
-            k2 = pyDes.des(wk_2)
-        else:
-            k2 = pyDes.triple_des(wk_2)
-        pin_result = k2.encrypt(binascii.unhexlify(pin_formatted))
-        result = '6300'+binascii.hexlify(pin_result).upper()
-        return result
-
-    def handle_68(self,data):
-        """
-         (68/69)   解密一个PIN
-        输入指令：
-
-        输出结果：
-        """       
-        code,keylen = struct.unpack('2s1s',data[:3])
-        if code != '68':
-            return '6960' #无此命令
-        if data[3] == 'K':
-            hexindex = data[4:7]
-            keyindex = int(hexindex,16)
-            next_field = 7
-            if keyindex<1 or keyindex>4096:
-                return '6933' #密钥索引错
-            working_key = self.getkey(keyindex) 
-        else:
-            if keylen not in '123':
-                return '6922'#密钥长度与使用模式不符
-            hex_cipher_len = int(keylen)*16
-            cipher = binascii.unhexlify(data[3:3+hex_cipher_len])
-            if len(cipher) != int(keylen)*8:
-                return '6922'#密钥长度与使用模式不符
-            next_field = 3+hex_cipher_len
-            k = pyDes.triple_des(self.HSM['lmk']) 
-            working_key = k.decrypt(cipher)
-
-        pin_fmt = data[next_field:next_field+2]
-        next_field += 2
-        pin_cipher = data[next_field:next_field+16] 
-        next_field += 16
-
-        pin_account = ''
-
-        if not pin_fmt in ['01','02','03','04','05','06']:
-            return '6128' #PIN 格式错误
-        else:
-            if pin_fmt == '01':
-                pin_account =data[next_field:]
-                if len(pin_account) != 12:
-                    return '6928' #PIN 格式错误
-            if pin_fmt == '04':
-                pin_account = data[next_field:]
-                if len(pin_account) != 18:
-                    return '6928' #PIN 格式错误
-        if keylen == '1':
-            k = pyDes.des(working_key)
-        else:
-            k = pyDes.triple_des(working_key)
-        pin_block = binascii.hexlify(k.decrypt(binascii.unhexlify(pin_cipher))).upper()
-        pin = myPin()
-        pin_code = pin.de_format(pin_fmt,pin_block,pin_account)
-
-        pin_code = pin_code + (12-len(pin_code))*'F'
-        result = '6900%s'%(pin_code)
-        return result
-
-    def handle_80(self,data):#待完成
+    def handle_80(self,data):
         """
          (80/81)    3.17 产生MAC（80/81）
                     密码机用指定长度的或指定索引的MAK密钥产生一个指定算法的MAC。
@@ -519,8 +320,8 @@ if __name__=='__main__':
     hsm=Hsm(conf)
     print('HR',hsm.handle('HR'))
     #clear is 8989898989898989,check is F9F4FBD3C9CC8CCC
-    print('2A',hsm.handle('2AK1BB157D91AB49FA4701D'))
-    print('2C',hsm.handle('2CK1BB'))
+    print('2A',hsm.handle('2AK1BA157D91AB49FA4701D'))
+    print('2C',hsm.handle('2CK1BA'))
     #clear is 1010101010101010,check is 82E13665B4624DF5
     print('2A',hsm.handle('2AK1BB158A1F5BB37961805'))
     print('2C',hsm.handle('2CK1BB'))
@@ -531,4 +332,9 @@ if __name__=='__main__':
     print('60',hsm.handle('6010123456789ABCDEF03123456FFFFFF')) # '6100B8C894DF3692B056'
     print('60',hsm.handle('601K1BB03123456FFFFFF')) # '6100F6649CD87D6182D5'
     print('60',hsm.handle('601K1BB01123456FFFFFF012345678901')) # '6100D4011ADB85F14AA6'
+    print('62',hsm.handle('6210123456789ABCDEF1FEDCBA987654321001061781BDB51C54F3D5012345678901')) # '6300AE64D1CC36D021A7'
+    print('62',hsm.handle('621K1BB1K1BA0106D4011ADB85F14AA6012345678901')) # '630064A9CBC0A30B9FFD'
+    print('1E',hsm.handle('1E111C0BE608104E81181D5D44FF720683D0D')) # '1F00B6D1898291A4EF73FCB2E54831F3EC60'
+    print('1E',hsm.handle('1E21K1BB1D5D44FF720683D0D')) # '1F0053CBAB404CCA204EF9FA37BBD26F81EB'
+
     hsm.close()
