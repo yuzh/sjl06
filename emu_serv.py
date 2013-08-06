@@ -82,12 +82,14 @@ class EmuHandler(asyncore.dispatcher_with_send):
 
 class EmuServer(asyncore.dispatcher):
 
-    def __init__(self, host, port):
+    def __init__(self, conf):
         asyncore.dispatcher.__init__(self)
-        print('loading %s'%(sys.argv[1]))
-        self.hsm=emu_hsm.Hsm(sys.argv[1])
+        print('loading %s',conf)
+        self.hsm=emu_hsm.Hsm(conf)
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_reuse_addr()
+        host=conf.get('listen_ip','0.0.0.0')
+        port=int(conf.get('listen_port',10008))
         self.bind((host, port))
         self.listen(5)
 
@@ -105,9 +107,23 @@ class EmuServer(asyncore.dispatcher):
                 sock.send(gen_pkg('You r not my client!'))
                 sock.close()
 
+def loadConfig(fname):
+    """
+    A config file will be following lines:
+    listen_ip=0.0.0.0
+    listen_port=10008
+    real_hsm_ip=10.112.18.22
+    real_hsm_port=10091
+    hsm_prefix=001001
+    hsm_data=10.112.9.249.hsm
+    """
+    buf=open(fname).readlines()
+    return dict([x.strip().split('=') for x in buf])
+
 if __name__=='__main__':
     if len(sys.argv)!=2:
-        print('Usage:emu_serv.py hsmfilename')
+        print('Usage:emu_serv.py config_file')
         exit(0)
-    server = EmuServer('0.0.0.0', 10008)
+    conf=loadConfig(sys.argv[1])
+    server = EmuServer(conf)
     asyncore.loop()

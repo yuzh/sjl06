@@ -2,51 +2,37 @@
 #encoding=utf-8
 """
 （HR/HS）   读密码机信息
-/h#（AG/AH）   获取授权
-#（AC/AD）   取消授权
-#（AM/AN）   修改口令
-#（1A/1B）   输入一个密钥，用MK加密输出
-#（1C/1D）   生成随机密钥，并用MK加密输出
-#（GY/GZ）   用密的成份合成工作密钥
 （1E/1F）   在MK及KEK加密的密钥之间的转换
 （2A/2B）   存储一个MK加密的密钥至指定的索引位置
 （2C/2D）   读取一个指定的索引的密钥
-（3A/3B）   生成密钥的校验值
-#（3C/3D）   检查一个指定索引号的密钥状态
-#（RA/RB）   由密码机产生一个随机数
 （60/61）   加密一个PIN
 （62/63）   转换PIN从一个区域到另一个区域
-（68/69）   解密一个PIN
 （80/81）   产生MAC
-（82/83）   验证MAC
 
-2013/4/15 完成2C,3A  humx
-2013/4/19 完成60  humx  待测试
-2013/5/13 完成1E humx 待测试
-2013/5/19 完成所有 humx 待测试
-
-2013/5/30 修改80,82命令 humx
-2013/5/31 修改2C,1E命令 humx
-2013/7/2  修改测试1E命令，2A（增加奇校验）命令 humx
-2013/7/3  修改测试1E命令 humx
-2013/7/4  修改2A，3A humx
-2013/7/5  修改80,82，输入计算MAC的数据是裸字符串（无需unhexfily)
-2013/7/8  修改60命令，01.03.04格式本身正确，02，05格式文档有问题，06格式修改正确
-2013/7/8  修改62,68命令。问题同60
+2013/8/6 重构代码，通过实体加密机实现指令功能
 """
 import cPickle
 import pyDes
 import binascii
 import struct
 import random
-from myPin import myPin
-from myMac import myMac
-from mac import mac
+import socket
 
 class Hsm:
-    def __init__(self,fname):
-        self.hsmfile=fname
-        self.load(fname)
+    def __init__(self,conf):
+        self.hsmfile=conf.get('hsm_data','10.112.9.249.hsm')
+        self.load(self.hsmfile)
+        hsm_ip=conf.get('real_hsm_ip','10.112.18.22')
+        hsm_port=int(conf.get('real_hsm_port','10010'))
+        self.hsm_prefix=conf.get('hsm_prefix','001001')
+
+        try:
+            self.hsm_sock=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.hsm_sock.connect((hsm_ip,hsm_port))
+        except socket.error as msg:
+            self.hsm_sock=None
+            print msg
+
         self.FuncMap={}
         # 查找Hsm类中所有形如handle_XX的函数，注册到函数映射表中
         funcs=[x for x in dir(Hsm) \
@@ -55,8 +41,33 @@ class Hsm:
         for f in funcs:
             self.FuncMap[f[-2:]]=getattr(self,f)
 
+    def __del__(self):
+        if self.hsm_sock:
+            print('close the socket')
+            self.hsm_sock.close()
+
+    def send(self,data):
+        buf=self.hsm_prefix+data
+        buf=struct.pack('>h',len(buf))+buf
+        self.hsm_sock.send(buf)
+
+    def recv(self):
+        buf=self.hsm_sock.recv(8192)
+        pkglen=struct.unpack('>h',buf[:2])[0]
+        pkg=buf[2:2+pkglen]
+        if self.hsm_prefix:
+            pf_len=len(self.hsm_prefix)
+            pkg=pkg[pf_len+2:]
+            pkglen-=pf_len+2
+        return (pkglen,pkg)
+
     def handle(self,data):
-        return self.FuncMap.get(data[:2])(data)
+        code=data[:2]
+        if code in ('HR','2A','2C','1E','60','62','63'):
+            return self.FuncMap.get(data[:2])(data)
+        else:
+            print('Invalid request %s'%(data))
+            return None
 
     def handle_HR(self,data):
         """
@@ -68,11 +79,8 @@ class Hsm:
             16:主密钥加密64bit0的结果
             n:返回密码机程序版本号等信息
         """
-        #print "the lmk is ",binascii.hexlify(self.HSM['lmk'])
-        k=pyDes.triple_des(self.HSM['lmk'])
-        result='HS00%s%s'%(binascii.hexlify(k.encrypt('\x00'*8)).upper(),\
-            'SJL06E HOST SECURITY MODULE: SOFTWARE VERSION 7.4.'\
-        )
+        self.send('HR')
+        result=self.recv()
         return result
 
     def even_chk_part(self,ch):#奇校验部分
@@ -736,54 +744,11 @@ class Hsm:
         self.HSM['keys'][i]=v
 
 
+def loadConfig(fname):
+    buf=open(fname).readlines()
+    return dict([x.strip().split('=') for x in buf])
+
 if __name__=='__main__':
-    hsm=Hsm('10.112.9.249.hsm')
-    #print hsm.handle('HR')
-    ##print hsm.handle('2AK00110123456789ABCDEF')
-    ##print hsm.handle('2AK00220123456789ABCDEF0123456789ABCDEF')
-    #print hsm.handle('2AKFFF38A5AE1F81AB8F2DD8A5AE1F81AB8F2DD8A5AE1F81AB8F2DD')
-    #test case by ysharp 
-    #print 'test'
-    #test case for handle_60
-    #print hsm.handle('603KFFF01123456FFFFFF123456789012')
-    #test case for handle_62
-    #print hsm.handle('623KFFF11234567890123456010226D8302117AD6FFE123456789012')
-    #test case for handle_68
-    #print hsm.handle('683KFFF0126D8302117AD6FFE123456789012')
-    #test case for handle_80
-    #print hsm.handle('8013KFFF002012345678901234567890')
-    #test case for handle_82
-    #print hsm.handle('8213KFFFBE0AA695002012345678901234567890')
-    print '6001:',hsm.handle('6010123456789ABCDEF01123456FFFFFF012345678901')
-    print '6801:',hsm.handle('6810123456789ABCDEF011781BDB51C54F3D5012345678901')
-
-    print '6002:',hsm.handle('6010123456789ABCDEF02123456FFFFFF')
-    print '6802:',hsm.handle('6810123456789ABCDEF027D0888BC40A5AD63')
-
-    print '6003:',hsm.handle('6010123456789ABCDEF03123456FFFFFF')
-    print '6803:',hsm.handle('6810123456789ABCDEF03B8C894DF3692B056')
-
-    print '6004:',hsm.handle('6010123456789ABCDEF04123456FFFFFF012345678901234567')
-    print '6804:',hsm.handle('6810123456789ABCDEF041781BDB51C54F3D5012345678901234567')
-
-    print '6005:',hsm.handle('6010123456789ABCDEF05123456FFFFFF')
-    print '6805:',hsm.handle('6810123456789ABCDEF05B8C894DF3692B056')
-
-    print '6006:',hsm.handle('6010123456789ABCDEF06123456FFFFFF')
-    print '6806:',hsm.handle('6810123456789ABCDEF06AE8F86D7DE61211C')
-
-    print '6007:',hsm.handle('6010123456789ABCDEF07123456FFFFFF')
-
-    print '62 01-06:',hsm.handle('6210123456789ABCDEF1FEDCBA987654321001061781BDB51C54F3D5012345678901')
-    print '62 03-01:',hsm.handle('6210123456789ABCDEF1FEDCBA98765432100301B8C894DF3692B056012345678901')
-    print '62 01-04 12:',hsm.handle('6210123456789ABCDEF1FEDCBA987654321001041781BDB51C54F3D5012345678901')
-    print '62 01-04 18:',hsm.handle('6210123456789ABCDEF1FEDCBA987654321001041781BDB51C54F3D5012345678901234567')
-    print '62 04-01 12:',hsm.handle('6210123456789ABCDEF1FEDCBA987654321004011781BDB51C54F3D5012345678901')
-    print '62 04-01 18:',hsm.handle('6210123456789ABCDEF1FEDCBA987654321004011781BDB51C54F3D5012345678901234567')
-
-
-    print '80:',hsm.handle('8031FEDCBA987654321000200123456789ABCDEF1234')
-    print "1E：",hsm.handle('1E'+'1'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D')
-    print "lmk:",binascii.hexlify(hsm.HSM['lmk']).upper()
-    #print "test_encrypt",binascii.hexlify(hsm.test_encrypt('1',binascii.unhexlify('0123456789ABCDEF'),binascii.unhexlify('A7FDB545BACB02DF'))).upper()
-    hsm.save()
+    conf=loadConfig('emu.conf')
+    hsm=Hsm(conf)
+    print('HR',hsm.handle('HR'))
