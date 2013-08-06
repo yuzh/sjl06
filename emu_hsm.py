@@ -2,12 +2,12 @@
 #encoding=utf-8
 """
 （HR/HS）   读密码机信息
-（1E/1F）   在MK及KEK加密的密钥之间的转换
 （2A/2B）   存储一个MK加密的密钥至指定的索引位置
 （2C/2D）   读取一个指定的索引的密钥
+（80/81）   产生MAC
 （60/61）   加密一个PIN
 （62/63）   转换PIN从一个区域到另一个区域
-（80/81）   产生MAC
+（1E/1F）   在MK及KEK加密的密钥之间的转换
 
 2013/8/6 重构代码，通过实体加密机实现指令功能
 """
@@ -66,7 +66,7 @@ class Hsm:
 
     def handle(self,data):
         code=data[:2]
-        if code in ('HR','2A','2C','1E','60','62','63'):
+        if code in ('HR','2A','2C','1E','60','62','63','80'):
             return self.FuncMap.get(data[:2])(data)
         else:
             print('Invalid request %s'%(data))
@@ -220,7 +220,7 @@ class Hsm:
         buf=code+'%03X'%(self.reserve_index)+keylen+cipher
         pkg=self.send(buf)
         if pkg[:4]=='2B00':
-            check=pkg[2:]
+            check=pkg[4:]
             self.KEYS[keyindex]=(cipher,check)
         return pkg
 
@@ -524,111 +524,21 @@ class Hsm:
         code,mactype,keylen = struct.unpack('2s1s1s',data[:4])
         if code != '80':
             return '8160'#无此命令
-        if mactype not in ['1','2','3']:
+        if mactype not in '123':
             return '8123'#MAC模式指示域错
         if keylen not in '123':
             return '8122'#密钥长度与使用模式不符
         
         #取得密钥
         if data[4] == 'K':
-            hexindex = data[5:8]
-            keyindex = int(hexindex,16)
-            next_field = 8
-
-            if keyindex<1 or keyindex>4096:
-                return '8133' #密钥索引错
-            working_key = self.getkey(keyindex) 
+            keyindex = int(data[5:8],16)
+            cipher,check = self.KEYS.get(keyindex,(None,None))
+            if not cipher:
+                return '8102'
+            buf=data[:4]+cipher+data[8:]
         else:
-            hex_cipher_len = int(keylen)*16
-            cipher = binascii.unhexlify(data[4:4+hex_cipher_len])
-            if len(cipher) != int(keylen)*8:
-                return '8122'#密钥长度与使用模式不符
-            next_field = 4+hex_cipher_len
-            k = pyDes.triple_des(self.HSM['lmk']) 
-            working_key = k.decrypt(cipher)
-        
-        mac_len = int(data[next_field:next_field+4])
-        next_field += 4
-        if mac_len >= 8192:
-            return '8124' #数据长度指示域错
-        
-        mac_data = data[next_field:]
-        if(len(mac_data) < mac_len):
-            return '8161' #消息太短
-        if(len(mac_data) > mac_len):
-            return '8162' #消息太长
-
-        #计算MAC
-        try:
-            mac_object = myMac(working_key,mac_len,mac_data)
-            mac_result = mac_object.get_mac(int(mactype))
-        except ValueError:
-            return '8122'
-
-        return "8100"+binascii.hexlify(mac_result).upper()
-
-    def handle_82(self,data):#待完成
-        """
-         (82/83)    3.18 验证MAC
-                    输入一个MAC和相应的数据。密码机计算输入数据的MAC，并与输入的MAC比较是否相等。
-                    注意：
-                    XOR MAC支持密钥长度可从单倍长、双倍长到三倍长。
-                    ANSI X9.9使用单倍长密钥，本指令不禁止双倍长和三倍长密钥。
-                    ANSI X9.19使用双倍长密钥，本指令不禁止单倍长和三倍长密钥。
-
-        输入指令：
-
-        输出结果：
-        """  
-        code,mactype,keylen = struct.unpack('2s1s1s',data[:4])
-        if code != '82':
-            return '8360'#无此命令
-        if mactype not in ['1','2','3']:
-            return '8323'#MAC模式指示域错
-        if keylen not in '123':
-            return '8322'#密钥长度与使用模式不符
-        
-        #取得密钥
-        if data[4] == 'K':
-            hexindex = data[5:8]
-            keyindex = int(hexindex,16)
-            next_field = 8
-
-            if keyindex<1 or keyindex>4096:
-                return '8333' #密钥索引错
-            working_key = self.getkey(keyindex) 
-        else:
-            hex_cipher_len = int(keylen)*16
-            cipher = binascii.unhexlify(data[4:4+hex_cipher_len])
-            if len(cipher) != int(keylen)*8:
-                return '8322'#密钥长度与使用模式不符
-            next_field = 4+hex_cipher_len
-            k = pyDes.triple_des(self.HSM['lmk']) 
-            working_key = k.decrypt(cipher)
-        
-        verify_mac = data[next_field:next_field+8]#校验的MAC
-        next_field+=8
-         
-        mac_len = int(data[next_field:next_field+4])
-        next_field += 4
-        if mac_len >= 8192:
-            return '8324' #数据长度指示域错
-         
-        mac_data = data[next_field:]
-        if(len(mac_data) < mac_len):
-            return '8361' #消息太短
-        if(len(mac_data) > mac_len):
-            return '8362' #消息太长
-        try:
-            mac_object = myMac(working_key,mac_len,mac_data)
-            mac_result = mac_object.get_mac(int(mactype))
-        except ValueError:
-            return '8322'
-
-        if (binascii.hexlify(mac_result[:4]).upper()) == verify_mac:
-            return "8300" 
-        else:#校验错
-            return "8320"
+            buf=data
+        return self.send(buf)
 
     def load(self,fname):
         try:
@@ -642,8 +552,6 @@ class Hsm:
         except IOError:
             print('save hsm to %s failed!'%self.hsmfile)
 
-
-
 def loadConfig(fname):
     buf=open(fname).readlines()
     return dict([x.strip().split('=') for x in buf])
@@ -655,9 +563,10 @@ if __name__=='__main__':
     #clear is 8989898989898989,check is F9F4FBD3C9CC8CCC
     print('2A',hsm.handle('2AK1BB157D91AB49FA4701D'))
     print('2C',hsm.handle('2CK1BB'))
-    t=raw_input()
     #clear is 1010101010101010,check is 82E13665B4624DF5
     print('2A',hsm.handle('2AK1BB158A1F5BB37961805'))
     print('2C',hsm.handle('2CK1BB'))
     hsm.save()
+    print('80',hsm.handle('80130123456789ABCDEFFEDCBA98765432101357902468ABCDEF00200123456789ABCDEF1234')) # '8100FD162D99540B9275'
+    print('80',hsm.handle('8011K1BB00200123456789ABCDEF1234')) # '810039B70D348B24E488'
     hsm.close()
