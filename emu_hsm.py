@@ -28,7 +28,7 @@ class Hsm:
         try:
             self.hsm_sock=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.hsm_sock.connect((hsm_ip,hsm_port))
-        except socket.error as msg:
+        except socket.error,msg:
             self.hsm_sock=None
             print('connect %s:%d error!'%(hsm_ip,hsm_port),msg)
 
@@ -129,12 +129,12 @@ class Hsm:
         try:
             keylen=rest[0]
             cipher,rest=self.replace_key(rest)
-        except ValueError as e:
+        except ValueError, e:
             return '1E'+e[0]
         try:
             wklen=rest[0]
             wk,rest=self.replace_key(rest)
-        except ValueError as e:
+        except ValueError , e:
             return '1E'+e[0]
 
         buf='1E'+flag+keylen+cipher+wklen+wk+rest
@@ -280,12 +280,12 @@ class Hsm:
         try:
             keylen1=rest[0]
             cipher1,rest=self.replace_key(rest)
-        except ValueError as e:
+        except ValueError , e:
             return '62'+e[0]
         try:
             keylen2=rest[0]
             cipher2,rest=self.replace_key(rest)
-        except ValueError as e:
+        except ValueError , e:
             return '62'+e[0]
         buf='62'+keylen1+cipher1+keylen2+cipher2+rest
         return self.send(buf)
