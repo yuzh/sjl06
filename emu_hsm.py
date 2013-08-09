@@ -8,6 +8,7 @@
 （60/61）   加密一个PIN
 （62/63）   转换PIN从一个区域到另一个区域
 （1E/1F）   在MK及KEK加密的密钥之间的转换
+（1C/1D）   生成一个随机密钥，并用MK加密输出
 
 2013/8/6 重构代码，通过实体加密机实现指令功能
 """
@@ -40,6 +41,7 @@ class Hsm:
             self.FuncMap[f[-2:]]=getattr(self,f)
 
     def close(self):
+        self.save()
         if self.hsm_sock:
             print('close the socket')
             self.hsm_sock.close()
@@ -63,7 +65,7 @@ class Hsm:
 
     def handle(self,data):
         code=data[:2]
-        if code in ('HR','2A','2C','1E','60','62','63','80'):
+        if code in ('HR','2A','2C','1E','1C','60','62','63','80'):
             return self.FuncMap.get(data[:2])(data)
         else:
             print('Invalid request %s'%(data))
@@ -78,6 +80,26 @@ class Hsm:
     def even_chk(self,chk):#奇校验,16进制未展开，/OX形式
         return ''.join([chr(self.even_chk_part(ord(x))) for x in chk])
 
+    def handle_1C(self,data):
+        rest=data[2:]
+        keylen=rest[0]
+        if keylen not in '123':
+            return '1C22'
+        pkg = self.send(data[:3])
+        newidx = data[3:]
+        if pkg[:4]=='1D00' and newidx and newidx[0]=='K':
+            try:
+                keyindex = int(newidx[1:],16)
+                if keyindex<0 or keyindex>4095:
+                    raise ValueError
+            except ValueError:
+                return '1C33'
+            t=int(keylen)*16
+            cipher = pkg[4:4+t]
+            check = pkg[4+t:4+t+16]
+            self.KEYS[keyindex]=(cipher,check)
+        return pkg
+        
     def handle_1E(self,data):
         """
         （1E/1F）   在MK及KEK加密的密钥之间的转换
@@ -143,7 +165,7 @@ class Hsm:
             return '2B60' #无此命令
         try:
             keyindex=int(hexindex,16)
-            if keyindex<1 or keyindex>4096:
+            if keyindex<1 or keyindex>4095:
                 raise ValueError
         except ValueError:
             return '2B33' #密钥索引错
@@ -336,5 +358,8 @@ if __name__=='__main__':
     print('62',hsm.handle('621K1BB1K1BA0106D4011ADB85F14AA6012345678901')) # '630064A9CBC0A30B9FFD'
     print('1E',hsm.handle('1E111C0BE608104E81181D5D44FF720683D0D')) # '1F00B6D1898291A4EF73FCB2E54831F3EC60'
     print('1E',hsm.handle('1E21K1BB1D5D44FF720683D0D')) # '1F0053CBAB404CCA204EF9FA37BBD26F81EB'
+    print('1C',hsm.handle('1C1')) 
+    print('1C',hsm.handle('1C2KXXX')) 
+    print('1C',hsm.handle('1C3K000')) 
 
     hsm.close()
