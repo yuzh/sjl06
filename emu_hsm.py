@@ -55,16 +55,16 @@ class HsmComm():
 
 class Hsm(HsmComm):
     def __init__(self,conf):
-        self.hsmfile=conf.get('hsm_data','9.249.keys')
+        self.hsmfile=conf.get('hsm_data')
         self.load(self.hsmfile)
 
-        hsm_ip=conf.get('real_hsm_ip','10.112.18.22')
-        hsm_port=int(conf.get('real_hsm_port','10010'))
-        hsm_prefix=conf.get('hsm_prefix','001001')
+        hsm_ip=conf.get('real_hsm_ip')
+        hsm_port=int(conf.get('real_hsm_port'))
+        hsm_prefix=conf.get('hsm_prefix')
         HsmComm.__init__(self,hsm_ip,hsm_port,hsm_prefix)
         self.open()
 
-        self.reserve_index=int(conf.get('reserve_index','4095'))
+        self.reserve_index=int(conf.get('reserve_index'))
 
         self.FuncMap={}
         # 查找Hsm类中所有形如handle_XX的函数，注册到函数映射表中

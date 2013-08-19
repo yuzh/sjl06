@@ -48,16 +48,9 @@ class EmuHandler(asyncore.dispatcher_with_send):
             return 'HSM Emu server,support commands:\n'\
                 'help\n'\
                 'exit\n'\
-                'status\n'\
-                'addip[ipaddr]\n'
-        elif cmd[0]=='addip':
-            print 'origin',self.hsm.HSM['whitelist']
-            self.hsm.HSM['whitelist'].append(cmd[1])
-            print 'new',self.hsm.HSM['whitelist']
-            return 'add ip %s ok' % (cmd[1])
+                'status\n'
         elif cmd[0]=='status':
-            text='whitelist'+`self.hsm.HSM['whitelist']`+'\n'
-            text+='socketlist'+'\n'
+            text='socketlist'+'\n'
             for x in asyncore.socket_map.values():
                 text+='    '+`x.addr`+'\n'
             return text
@@ -72,7 +65,7 @@ class EmuHandler(asyncore.dispatcher_with_send):
             self.buf+=data
             if len(self.buf)>2:
                 cmdlen=2+struct.unpack('>h',self.buf[:2])[0]
-                print 'packlen is %d' % (cmdlen)
+                #print 'packlen is %d' % (cmdlen)
                 if len(self.buf)>=cmdlen:
                     Req=self.buf[2:cmdlen]
                     self.buf=self.buf[cmdlen:]
@@ -85,7 +78,8 @@ class EmuServer(asyncore.dispatcher):
 
     def __init__(self, conf):
         asyncore.dispatcher.__init__(self)
-        print('loading %s',conf)
+        print('EmuServer Config:',conf)
+        self.allow_ip=conf.get('allow_ip','127.0.0.1')
         self.hsm=emu_hsm.Hsm(conf)
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_reuse_addr()
@@ -102,7 +96,7 @@ class EmuServer(asyncore.dispatcher):
             sock, addr = pair
             print 'Incoming connection from %s' % repr(addr)
             print addr[0]
-            if addr[0] in self.hsm.HSM['whitelist'] or addr[0]=='127.0.0.1':
+            if addr[0] in self.allow_ip:
                 handler = EmuHandler(sock,self.hsm)
             else:
                 sock.send(gen_pkg('You r not my client!'))
