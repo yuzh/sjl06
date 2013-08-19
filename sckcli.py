@@ -17,23 +17,25 @@ def unpkg(buf):
     return (pkglen,buf[2:2+pkglen])
 
 if __name__=='__main__':
-    if len(sys.argv)<=1:
-        print('Usage:sckcli.py msgtext')
+    if len(sys.argv)<=3:
+        print('Usage:sckcli.py hsmip hsmport msgtext')
         exit(1)
-    HOST=os.environ.get('HSM_HOST')
-    if not HOST:
-        print('HSM_HOST not define! use 127.0.0.1')
-        HOST='127.0.0.1'
-    PORT=os.environ.get('HSM_PORT')
-    if not PORT:
-        print('HSM_PORT not define! use 10008')
-        PORT='10008'
-    PORT=int(PORT)
+    # HOST=os.environ.get('HSM_HOST')
+    # if not HOST:
+    #     print('HSM_HOST not define! use 127.0.0.1')
+    #     HOST='127.0.0.1'
+    # PORT=os.environ.get('HSM_PORT')
+    # if not PORT:
+    #     print('HSM_PORT not define! use 10008')
+    #     PORT='10008'
+    # PORT=int(PORT)
+    HOST=sys.argv[1]
+    PORT=int(sys.argv[2])
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((HOST,PORT))
 
-    cmd=' '.join(sys.argv[1:])
+    cmd=' '.join(sys.argv[3:])
     s.send(gen_pkg(cmd))
     ret=s.recv(8192)
     s.close()
