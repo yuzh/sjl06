@@ -16,42 +16,21 @@ import cPickle
 import struct
 import socket
 
-class Hsm:
-    def __init__(self,conf):
-        self.hsmfile=conf.get('hsm_data','9.249.keys')
-        self.load(self.hsmfile)
-        hsm_ip=conf.get('real_hsm_ip','10.112.18.22')
-        hsm_port=int(conf.get('real_hsm_port','10010'))
-        self.hsm_prefix=conf.get('hsm_prefix','001001')
-        self.reserve_index=int(conf.get('reserve_index','4095'))
+class HsmComm():
+    def __init__(self,ip,port,prefix):
+        self.hsm_ip=ip
+        self.hsm_port=port
+        self.hsm_prefix=prefix
 
+    def open(self):
+        self.hsm_sock=None
         try:
-            self.hsm_sock=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.hsm_sock.connect((hsm_ip,hsm_port))
+            self.hsm_sock=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+            self.hsm_sock.connect((self.hsm_ip,self.hsm_port))
         except socket.error,msg:
-            self.hsm_sock=None
-            print('connect %s:%d error!'%(hsm_ip,hsm_port),msg)
-
-        self.FuncMap={}
-        # 查找Hsm类中所有形如handle_XX的函数，注册到函数映射表中
-        funcs=[x for x in dir(Hsm) \
-            if callable(getattr(self,x)) and x[:7]=='handle_']
-        # {'XX':handle_XX}
-        for f in funcs:
-            self.FuncMap[f[-2:]]=getattr(self,f)
-
-    def close(self):
-        self.save()
-        if self.hsm_sock:
-            print('close the socket')
-            self.hsm_sock.close()
-
-    def send(self,data):
-        buf=self.hsm_prefix+data
-        buf=struct.pack('>h',len(buf))+buf
-        self.hsm_sock.send(buf)
-        pkglen,pkg=self.recv()
-        return pkg
+            print("HsmComm.open fail,",msg)
+            return False
+        return True
 
     def recv(self):
         buf=self.hsm_sock.recv(8192)
@@ -63,6 +42,42 @@ class Hsm:
             pkglen-=pf_len+2
         return (pkglen,pkg)
 
+    def send_recv(self,data):
+        buf=self.hsm_prefix+data
+        buf=struct.pack('>h',len(buf))+buf
+        self.hsm_sock.send(buf)
+        pkglen,pkg=self.recv()
+        return pkg
+
+    def close(self):
+        if self.hsm_sock:
+            self.hsm_sock.close()
+
+class Hsm(HsmComm):
+    def __init__(self,conf):
+        self.hsmfile=conf.get('hsm_data','9.249.keys')
+        self.load(self.hsmfile)
+
+        hsm_ip=conf.get('real_hsm_ip','10.112.18.22')
+        hsm_port=int(conf.get('real_hsm_port','10010'))
+        hsm_prefix=conf.get('hsm_prefix','001001')
+        HsmComm.__init__(self,hsm_ip,hsm_port,hsm_prefix)
+        self.open()
+
+        self.reserve_index=int(conf.get('reserve_index','4095'))
+
+        self.FuncMap={}
+        # 查找Hsm类中所有形如handle_XX的函数，注册到函数映射表中
+        funcs=[x for x in dir(Hsm) \
+            if callable(getattr(self,x)) and x[:7]=='handle_']
+        # {'XX':handle_XX}
+        for f in funcs:
+            self.FuncMap[f[-2:]]=getattr(self,f)
+
+    def close(self):
+        self.save()
+        HsmComm.close(self)
+
     def handle(self,data):
         code=data[:2]
         if code in ('HR','2A','2C','1E','1C','60','62','63','80'):
@@ -72,7 +87,7 @@ class Hsm:
             return None
 
     def handle_HR(self,data):
-        return self.send('HR')
+        return self.send_recv('HR')
 
     def even_chk_part(self,ch):#奇校验部分
      return ch^(1-[y>0 and 1 or 0 for y in [ch&x for x in (128,64,32,16,8,4,2,1)]].count(1)%2)
@@ -85,7 +100,7 @@ class Hsm:
         keylen=rest[0]
         if keylen not in '123':
             return '1C22'
-        pkg = self.send(data[:3])
+        pkg = self.send_recv(data[:3])
         newidx = data[3:]
         if pkg[:4]=='1D00' and newidx and newidx[0]=='K':
             try:
@@ -139,7 +154,7 @@ class Hsm:
 
         buf='1E'+flag+keylen+cipher+wklen+wk+rest
         print('debug handle_1E',buf)
-        pkg=self.send(buf)
+        pkg=self.send_recv(buf)
         if pkg[:4]=='1F00' and rest and rest[0]=='K': #save result to hsm
             cipher = pkg[4:4+int(wklen)*16]
             check = pkg[4+int(wklen)*16:]
@@ -174,7 +189,7 @@ class Hsm:
         
         cipher=data[7:]
         buf=code+'%03X'%(self.reserve_index)+keylen+cipher
-        pkg=self.send(buf)
+        pkg=self.send_recv(buf)
         if pkg[:4]=='2B00':
             check=pkg[4:]
             self.KEYS[keyindex]=(cipher,check)
@@ -266,7 +281,7 @@ class Hsm:
             buf=data[:3]+cipher+data[7:]
         else:
             buf=data
-        return self.send(buf)
+        return self.send_recv(buf)
 
     def handle_62(self,data):
         """
@@ -288,7 +303,7 @@ class Hsm:
         except ValueError , e:
             return '62'+e[0]
         buf='62'+keylen1+cipher1+keylen2+cipher2+rest
-        return self.send(buf)
+        return self.send_recv(buf)
 
     def handle_80(self,data):
         """
@@ -319,7 +334,7 @@ class Hsm:
             buf=data[:4]+cipher+data[8:]
         else:
             buf=data
-        return self.send(buf)
+        return self.send_recv(buf)
 
     def load(self,fname):
         try:
