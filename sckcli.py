@@ -16,6 +16,15 @@ def unpkg(buf):
     pkglen=struct.unpack('>h',buf[:2])[0]
     return (pkglen,buf[2:2+pkglen])
 
+def recvpkg(sock):
+    buf=sock.recv(8192)
+    pkglen,pkg=unpkg(buf)
+    recvlen=len(pkg)
+    while recvlen<pkglen:
+        buf=sock.recv(pkglen-recvlen)
+        recvlen+=len(buf)
+        pkg+=buf
+    return pkglen,pkg
 if __name__=='__main__':
     if len(sys.argv)<=3:
         print('Usage:sckcli.py hsmip hsmport msgtext')
@@ -37,9 +46,7 @@ if __name__=='__main__':
 
     cmd=' '.join(sys.argv[3:])
     s.send(gen_pkg(cmd))
-    ret=s.recv(8192)
+    msglen,msg=recvpkg(s)
     s.close()
-
-    msglen,msg=unpkg(ret)
     print('[return %d bytes]'%( msglen))
     print msg

@@ -35,6 +35,7 @@ class EmuHandler(asyncore.dispatcher_with_send):
     def handle(self,Req):
         if Req[0]>='a' and Req[0]<='z':
             buf=self.handle_cmd(Req.split())
+            print(len(buf),buf)
         else:
             buf=self.hsm.handle(Req)
         return buf
@@ -42,7 +43,7 @@ class EmuHandler(asyncore.dispatcher_with_send):
     def handle_cmd(self,cmd):
         pp=pprint.PrettyPrinter(indent=4)
         if cmd[0]=='exit':
-            if len(cmd)>1 and cmd[1]=='<shutdown_password>':
+            if len(cmd)>1 and cmd[1]=='password':
                 self.send(gen_pkg('bye'))
                 self.close()
                 self.hsm.close()
@@ -59,9 +60,11 @@ class EmuHandler(asyncore.dispatcher_with_send):
                 'status\n'
         elif cmd[0]=='status':
             text='socketlist'+'\n'
-            #for x in asyncore.socket_map.values():
-            #    text+='    '+`x.addr`+'\n'
-            text+=pp.pformat(asyncore.socket_map.values())+'\n'
+            for x in asyncore.socket_map.values():
+                text+='    '+`x.addr`+'\n'
+            #text=pp.pformat(asyncore.socket_map.values())+'\n'
+            text+='hsm stats:\n'
+            text+=pp.pformat(self.hsm.stats)+'\n'
             text+='allow_ip:'+`self.allow_ip`+'\n'
             return text
         elif cmd[0]=='addip':
@@ -115,8 +118,8 @@ class EmuServer(asyncore.dispatcher):
             pass
         else:
             sock, addr = pair
-            print 'Incoming connection from %s' % repr(addr)
-            print addr[0]
+            #print 'Incoming connection from %s' % repr(addr)
+            #print addr[0]
             if addr[0] in self.allow_ip:
                 handler = EmuHandler(sock,self.hsm,self.allow_ip)
             else:

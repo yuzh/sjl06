@@ -36,6 +36,11 @@ class HsmComm():
         buf=self.hsm_sock.recv(8192)
         pkglen=struct.unpack('>h',buf[:2])[0]
         pkg=buf[2:2+pkglen]
+        readlen=len(pkg)
+        while readlen<pkglen:
+            buf=self.hsm_sock.recv(pkglen-readlen)
+            pkg+=buf
+            readlen+=len(buf)
         if self.hsm_prefix:
             pf_len=len(self.hsm_prefix)
             pkg=pkg[pf_len+2:]
@@ -66,13 +71,15 @@ class Hsm(HsmComm):
 
         self.reserve_index=int(conf.get('reserve_index'))
 
-        self.FuncMap={}
+        self.FuncMap=dict()
+        self.stats=dict()
         # 查找Hsm类中所有形如handle_XX的函数，注册到函数映射表中
         funcs=[x for x in dir(Hsm) \
             if callable(getattr(self,x)) and x[:7]=='handle_']
         # {'XX':handle_XX}
         for f in funcs:
             self.FuncMap[f[-2:]]=getattr(self,f)
+            self.stats[f[-2:]]=0
 
     def close(self):
         self.save()
@@ -80,6 +87,7 @@ class Hsm(HsmComm):
 
     def handle(self,data):
         code=data[:2]
+        self.stats[code]+=1
         if code in ('HR','2A','2C','1E','1C','60','62','63','80'):
             return self.FuncMap.get(data[:2])(data)
         else:
@@ -153,7 +161,7 @@ class Hsm(HsmComm):
             return '1E'+e[0]
 
         buf='1E'+flag+keylen+cipher+wklen+wk+rest
-        print('debug handle_1E',buf)
+        #print('debug handle_1E',buf)
         pkg=self.send_recv(buf)
         if pkg[:4]=='1F00' and rest and rest[0]=='K': #save result to hsm
             cipher = pkg[4:4+int(wklen)*16]
@@ -180,7 +188,7 @@ class Hsm(HsmComm):
             return '2B60' #无此命令
         try:
             keyindex=int(hexindex,16)
-            if keyindex<1 or keyindex>4095:
+            if keyindex<0 or keyindex>4095:
                 raise ValueError
         except ValueError:
             return '2B33' #密钥索引错
@@ -214,14 +222,17 @@ class Hsm(HsmComm):
             return '2D60' #无此命令
         try:
             keyindex=int(hexindex,16)#取得密钥索引
-            if keyindex<1 or keyindex>4096:
+            if keyindex<0 or keyindex>4095:
                 raise ValueError
         except ValueError:
             return '2D33' #密钥索引错
         
-        cipher,check=self.KEYS.get(keyindex)#取出密钥
-        keylen='%1d'%(len(cipher)/16)
-        result='2D00'+keylen+cipher.upper()+check.upper()
+        cipher,check=self.KEYS.get(keyindex,(None,None))#取出密钥
+        if cipher:
+            keylen='%1d'%(len(cipher)/16)
+            result='2D00'+keylen+cipher.upper()+check.upper()
+        else:
+            result='2D02'
         return result
 
     def replace_key(self,data):
