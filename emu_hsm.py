@@ -15,6 +15,7 @@
 import cPickle
 import struct
 import socket
+import logging
 
 class HsmComm():
     def __init__(self,ip,port,prefix):
@@ -60,6 +61,9 @@ class HsmComm():
 
 class Hsm(HsmComm):
     def __init__(self,conf):
+        logfile=conf.get('logfile','hsm.log')
+        logging.basicConfig(format='%(asctime)s %(message)s',\
+            filename=logfile,level=logging.DEBUG)
         self.hsmfile=conf.get('hsm_data')
         self.load(self.hsmfile)
 
@@ -89,7 +93,9 @@ class Hsm(HsmComm):
         code=data[:2]
         self.stats[code]+=1
         if code in ('HR','2A','2C','1E','1C','60','62','63','80'):
-            return self.FuncMap.get(data[:2])(data)
+            rlt=self.FuncMap.get(data[:2])(data)
+            logging.info(data+'\n=> '+rlt)
+            return rlt
         else:
             print('Invalid request %s'%(data))
             return None
@@ -143,7 +149,10 @@ class Hsm(HsmComm):
         req='1E'+'1'+'1'+'1C0BE608104E8118'+'1'+'D5D44FF720683D0D'
         expect='1F00'+'B6D1898291A4EF73'+'FCB2E54831F3EC60'
         """
-        code,flag = struct.unpack('2s1s',data[:3])
+        try:
+            code,flag = struct.unpack('2s1s',data[:3])
+        except struct.error:
+            return '1F63'
         if code != '1E':
             return '1F60' #无此命令
         if flag not in '12':
@@ -183,7 +192,10 @@ class Hsm(HsmComm):
             2:错误代码，00表示正确
             16:单、双、三倍长密钥加密64比特 0的结果。
         """
-        code,hexindex,keylen=struct.unpack('3s3s1s',data[:7])
+        try:
+            code,hexindex,keylen=struct.unpack('3s3s1s',data[:7])
+        except struct.error:
+            return '2B63'
         if code!='2AK':
             return '2B60' #无此命令
         try:
@@ -217,7 +229,10 @@ class Hsm(HsmComm):
             16/32/48:用主密钥加密的工作密钥密文
             16:单、双、三倍长密钥加密64比特 0的结果。
         """
-        code,hexindex=struct.unpack('3s3s',data[:6])
+        try:
+            code,hexindex=struct.unpack('3s3s',data[:6])
+        except struct.error:
+            return '2D63'
         if code!='2CK':
             return '2D60' #无此命令
         try:
@@ -280,7 +295,10 @@ class Hsm(HsmComm):
                     expect:6100B8C894DF3692B056
             06命令修改完成
        """
-        code,keylen = struct.unpack('2s1s',data[:3])
+        try:
+            code,keylen = struct.unpack('2s1s',data[:3])
+        except struct.error:
+            return ('6163')
         if code != '60':
             return '6160' #无此命令
         #取得工作密钥
@@ -328,7 +346,10 @@ class Hsm(HsmComm):
 
         输出结果：
         """  
-        code,mactype,keylen = struct.unpack('2s1s1s',data[:4])
+        try:
+            code,mactype,keylen = struct.unpack('2s1s1s',data[:4])
+        except struct.error:
+            return '8063'
         if code != '80':
             return '8160'#无此命令
         if mactype not in '123':
@@ -361,7 +382,7 @@ class Hsm(HsmComm):
 
 def loadConfig(fname):
     buf=open(fname).readlines()
-    return dict([x.strip().split('=') for x in buf])
+    return dict([x.strip().split('=') for x in buf if x[0]!='#'])
 
 if __name__=='__main__':
     conf=loadConfig('emu.conf')
