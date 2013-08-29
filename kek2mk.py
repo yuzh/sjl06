@@ -38,7 +38,7 @@ def main():
         sys.exit(1)
 
 
-    kek_pos=int(conf.get('kek_import','4090'))
+    kek_pos=int(conf.get('kek_swap','4090'))
     kek_file=conf.get('kek_file','ciphers.kek')
     keys_kek=cPickle.load(open(kek_file))
 

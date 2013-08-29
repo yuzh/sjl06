@@ -12,6 +12,7 @@ import asyncore
 import socket
 import struct
 import emu_hsm
+import pprint
 
 def gen_pkg(buf):
     return struct.pack('>h',len(buf))+buf
@@ -21,10 +22,11 @@ def unpkg(buf):
     return (pkglen,buf[2:2+pkglen])
 
 class EmuHandler(asyncore.dispatcher_with_send):
-    def __init__(self,sock,hsm,map=None):
+    def __init__(self,sock,hsm,allow_ip,map=None):
         asyncore.dispatcher_with_send.__init__(self,sock,map)
         self.buf=''
         self.hsm=hsm
+        self.allow_ip=allow_ip
 
     def sethsm(self,hsm):
         self.hsm=hsm
@@ -38,22 +40,40 @@ class EmuHandler(asyncore.dispatcher_with_send):
         return buf
 
     def handle_cmd(self,cmd):
+        pp=pprint.PrettyPrinter(indent=4)
         if cmd[0]=='exit':
-            self.send(gen_pkg('bye'))
-            self.close()
-            self.hsm.close()
-            print('HSM EMU Server shutdown!')
-            exit(0)
+            if len(cmd)>1 and cmd[1]=='<shutdown_password>':
+                self.send(gen_pkg('bye'))
+                self.close()
+                self.hsm.close()
+                print('HSM EMU Server shutdown!')
+                exit(0)
+            else:
+                return 'need password!'
         elif cmd[0]=='help':
             return 'HSM Emu server,support commands:\n'\
                 'help\n'\
-                'exit\n'\
+                'exit <shutdown_password>\n'\
+                'addip client_ip\n'\
+                'delip client_ip\n'\
                 'status\n'
         elif cmd[0]=='status':
             text='socketlist'+'\n'
-            for x in asyncore.socket_map.values():
-                text+='    '+`x.addr`+'\n'
+            #for x in asyncore.socket_map.values():
+            #    text+='    '+`x.addr`+'\n'
+            text+=pp.pformat(asyncore.socket_map.values())+'\n'
+            text+='allow_ip:'+`self.allow_ip`+'\n'
             return text
+        elif cmd[0]=='addip':
+            self.allow_ip.append(cmd[1])
+            return '%s add to allow list\n'%(cmd[1])
+        elif cmd[0]=='delip':
+            try:
+                self.allow_ip.remove(cmd[1])
+            except ValueError,e:
+                return 'remove %s fail:%s\n'%(cmd[1],e[0])
+            else:
+                return 'remove %s from allow list\n'%(cmd[1])
         else:
             return 'unknown command'
 
@@ -78,8 +98,9 @@ class EmuServer(asyncore.dispatcher):
 
     def __init__(self, conf):
         asyncore.dispatcher.__init__(self)
-        print('EmuServer Config:',conf)
-        self.allow_ip=conf.get('allow_ip','127.0.0.1')
+        print('EmuServer Config')
+        pprint.PrettyPrinter(indent=4).pprint(conf)
+        self.allow_ip=conf.get('allow_ip','127.0.0.1').split(',')
         self.hsm=emu_hsm.Hsm(conf)
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_reuse_addr()
@@ -97,7 +118,7 @@ class EmuServer(asyncore.dispatcher):
             print 'Incoming connection from %s' % repr(addr)
             print addr[0]
             if addr[0] in self.allow_ip:
-                handler = EmuHandler(sock,self.hsm)
+                handler = EmuHandler(sock,self.hsm,self.allow_ip)
             else:
                 sock.send(gen_pkg('You r not my client!'))
                 sock.close()
@@ -111,9 +132,10 @@ def loadConfig(fname):
     real_hsm_port=10091
     hsm_prefix=001001
     hsm_data=9.249.keys
+    allow_ip=127.0.0.1,10.112.18.22
     """
     buf=open(fname).readlines()
-    return dict([x.strip().split('=') for x in buf])
+    return dict([x.strip().split('=') for x in buf if x[0]!='#'])
 
 if __name__=='__main__':
     if len(sys.argv)!=2:
