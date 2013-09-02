@@ -85,6 +85,8 @@ class Hsm(HsmComm):
             self.FuncMap[f[-2:]]=getattr(self,f)
             self.stats[f[-2:]]=0
 
+        self.logflag='not init?'
+
     def close(self):
         self.save()
         HsmComm.close(self)
@@ -94,10 +96,11 @@ class Hsm(HsmComm):
         self.stats[code]+=1
         if code in ('HR','2A','2C','1E','1C','60','62','63','80'):
             rlt=self.FuncMap.get(data[:2])(data)
-            logging.info(data+'\n=> '+rlt)
+            if code != 'HR':
+                logging.info(self.logflag+data+'\n=> '+rlt)
             return rlt
         else:
-            print('Invalid request %s'%(data))
+            logging.warning('Invalid request %s'%(data))
             return None
 
     def handle_HR(self,data):
