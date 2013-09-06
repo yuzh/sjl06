@@ -93,7 +93,10 @@ class Hsm(HsmComm):
 
     def handle(self,data):
         code=data[:2]
-        self.stats[code]+=1
+        if seld.stats.get(code):
+            self.stats[code]+=1
+        else:
+            self.stats[code]=1
         if code in ('HR','2A','2C','1E','1C','60','62','63','80'):
             rlt=self.FuncMap.get(data[:2])(data)
             if code != 'HR':
