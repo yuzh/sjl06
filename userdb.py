@@ -68,12 +68,12 @@ def check_args():
 def add_user(db):
     username,pattern,date1,date2=sys.argv[2:]
     try:
-        d1=time.strptime(date1,'%Y-%M-%d')
+        d1=time.strptime(date1,'%Y-%m-%d')
     except ValueError as e:
         print('date1 "%s" is invalid! format is yyyy-mm-dd'%(date1))
         return
     try:
-        d2=time.strptime(date2,'%Y-%M-%d')
+        d2=time.strptime(date2,'%Y-%m-%d')
     except ValueError as e:
         print('date2 "%s" is invalid! format is yyyy-mm-dd'%(date2))
         return
