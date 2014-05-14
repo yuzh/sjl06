@@ -115,7 +115,7 @@ def get_host(db):
         try:
             msg=json.loads(memo)
         except ValueError:
-            msg=dict()
+            msg={'old value':memo}
         print('--- memo ---')
         for k in msg.keys():
             print('%s => %s'%(k,msg[k]))
@@ -131,7 +131,7 @@ def set_host(db):
         try:
             msg=json.loads(memo)
         except ValueError:
-            msg=dict()
+            msg={'old value':memo}
         msg[key]=value.decode('utf-8')
         memo=json.dumps(msg)
         db.update(user,host,password,memo)
@@ -147,7 +147,7 @@ def gen_host_pass(db):
         try:
             msg=json.loads(memo)
         except ValueError:
-            msg=dict()
+            msg={'old value':memo}
         msg['generate password']=time.ctime()
         memo=json.dumps(msg)
         db.update(user,host,newpass,memo)
