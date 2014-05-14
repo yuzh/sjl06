@@ -81,7 +81,7 @@ def add_user(db):
         'creator':os.getlogin(),
         'create_time':time.ctime()
     })
-    db.create(username,pattern,date1,date2)
+    db.create(username,pattern,date1,date2,memo)
 
 def get_user(db):
     user=sys.argv[2]
