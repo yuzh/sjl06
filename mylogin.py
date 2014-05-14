@@ -59,10 +59,10 @@ def load_config(user,part_ip):
     db = userdb(DB_FILE)
     c = db.conn.cursor()
     sql='select username,pattern,strftime("%s",ifnull(date1,"1970-01-01"))+0 date1,'+\
-        'strftime("%s",ifnull(date1,"2099-01-01"))+0 date2 from users WHERE username=?'
+        'strftime("%s",ifnull(date2,"2099-01-01"))+0 date2 from users WHERE username=?'
     c.execute(sql,(user,))
     user_rows = c.fetchall()
-    sql = 'SELECT hostname,username,password FROM hosts WHERE instr(hostname,"%s")'%(part_ip)
+    sql = 'SELECT hostname,username,password FROM hosts WHERE hostname like "%s"'%(part_ip)
     c.execute(sql)
     host_rows = c.fetchall()
     db.close()
@@ -134,7 +134,7 @@ def ssh_host(username,hostname,password,port=22):
         chan = client.invoke_shell('vt100',a[1],a[0])
         print(repr(client.get_transport()))
         print('*** Here we go!\n')
-        logdir='/mnt/ssolog/%s/%s@%s/'%(get_user().replace('\\','/'),username,hostname)
+        logdir='/mnt/ssolog/%s/%s_%s/'%(get_user().replace('\\','/'),username,hostname)
         os.popen('mkdir -p '+logdir)
         logfile=time.strftime('%Y%m%d_%H%M%S',time.localtime())
         posix_shell(chan,logdir+logfile+'.log')
