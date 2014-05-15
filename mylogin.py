@@ -17,7 +17,7 @@ import tty
 
 from userdb import userdb
 
-DB_FILE='pass.db'
+DB_FILE=os.path.dirname(sys.argv[0])+'/pass.db'
 
 def do_login(host,username,password,logfname):
     cmd='ssh -i /root/spdblogin/id_spdb %s@%s' % (username,host)
