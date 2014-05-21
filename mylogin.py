@@ -69,6 +69,7 @@ def load_config(user,part_ip):
     return filter_rows(user_rows,host_rows)
    
 def select_host(hosts):
+    print(get_user())
     if len(hosts)==0:
         print(get_user()+':no hosts to connect!')
         return None
@@ -152,12 +153,20 @@ def ssh_host(username,hostname,password,port=22):
 
 def main():
     if len(sys.argv)!=2:
-        print('Usage:%s part_of_ip_address'%(sys.argv[0]))
-        quit()
-    rlt=load_config(get_user(),sys.argv[1])
+        print('Usage:\n\t%s part_of_ip_address'%('mylogin'))
+        print('Sample:\n\t%s %%18.22'%('mylogin'))
+        patt='%'
+    else:
+        patt=sys.argv[1]
+    rlt=load_config(get_user(),patt)
     t=select_host(rlt)
     if t:
+        import logdb
+        log = logdb.logdb(os.path.dirname(sys.argv[0])+'/logs.db',True)
+        t1='%s@%s'%(t['username'],t['hostname'])
+        log.create2(' '.join(sys.argv),'connect:'+t1)
         ssh_host(t['username'],t['hostname'],t['password'])
+        log.create2(' '.join(sys.argv),'close:'+t1)
     
 if __name__=='__main__':
     main()
