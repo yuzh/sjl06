@@ -164,9 +164,11 @@ def main():
         import logdb
         log = logdb.logdb(os.path.dirname(sys.argv[0])+'/logs.db',True)
         t1='%s@%s'%(t['username'],t['hostname'])
+        set_title(t1)
         log.create2(' '.join(sys.argv),'connect:'+t1)
         ssh_host(t['username'],t['hostname'],t['password'])
         log.create2(' '.join(sys.argv),'close:'+t1)
+        set_title(get_user())
     
 if __name__=='__main__':
     main()
