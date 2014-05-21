@@ -1,3 +1,4 @@
+#!/usr/bin/python
 #encoding=utf-8
 import sys
 import time
@@ -6,6 +7,7 @@ import sqlite3
 import json
 import traceback
 __all__ = ['userdb']
+import logdb
 
 class userdb:
 
@@ -41,17 +43,33 @@ class userdb:
         self.conn.close()
 
 
+def ParseDate(tval):
+    support_formats=(
+        '%Y%m%d',
+        '%Y/%m/%d-%H:%M:%S',
+        '%Y/%m/%d',
+        '%Y-%m-%d',
+        '%Y%m%d%H%M%S',
+    )
+    for f in support_formats:
+        try:
+            tmp=time.strptime(tval,f)
+            return time.strftime('%Y-%m-%d',tmp)
+        except ValueError,e:
+            pass
+    return None
+
 def ConvertTxtToDB(txtfname, db):
     l = [ x.strip().split() for x in open(txtfname).readlines() if x[0] != '#' ]
     for x in l:
         user = x[0]
         pattern = x[1]
         try:
-            date1=x[2]
+            date1=ParseDate(x[2])
         except IndexError as e:
             date1=None
         try:
-            date2=x[3]
+            date2=ParseDate(x[3])
         except IndexError as e:
             date2=None
         memo = json.dumps({'loadtime':time.ctime()})
@@ -71,17 +89,18 @@ def add_user(db):
         d1=time.strptime(date1,'%Y-%m-%d')
     except ValueError as e:
         print('date1 "%s" is invalid! format is yyyy-mm-dd'%(date1))
-        return
+        return 'date1 err'
     try:
         d2=time.strptime(date2,'%Y-%m-%d')
     except ValueError as e:
         print('date2 "%s" is invalid! format is yyyy-mm-dd'%(date2))
-        return
+        return 'date2 err'
     memo=json.dumps({
         'creator':os.getlogin(),
         'create_time':time.ctime()
     })
     db.create(username,pattern,date1,date2,memo)
+    return 'add ok'
 
 def get_user(db):
     user=sys.argv[2]
@@ -89,11 +108,13 @@ def get_user(db):
     for row in rows:
         line=','.join([x+':'+str(row[x]) for x in row.keys()])
         print(line)
+    return 'get %d rows' % (len(rows))
 
 def del_user(db):
     user,userid=sys.argv[2:]
     rowcount=db.delete(user,userid)
     print('delete %d rows'%rowcount)
+    return 'delete %d rows'%rowcount
 
 def load_user(db):
     filename=sys.argv[2]
@@ -110,13 +131,15 @@ def main():
         quit()
     func={'add':add_user,'get':get_user,'del':del_user,\
         'load':load_user}.get(sys.argv[1])
-    db = userdb('pass.db')
+    db = userdb(os.path.dirname(sys.argv[0])+'/pass.db')
+    log = logdb.logdb(os.path.dirname(sys.argv[0])+'/logs.db',True)
     try:
-        func(db)
+        rlt=func(db)
         db.close()
     except Exception as e:
         print('*** Caught exception: %s: %s' % (e.__class__, e))
         traceback.print_exc()
+    log.create2(' '.join(sys.argv),rlt)
 
 if __name__ == '__main__':
     main()
