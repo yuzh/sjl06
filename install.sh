@@ -9,5 +9,4 @@ if [ ! -e /etc/spdb ]
 then
     sudo mkdir /etc/spdb
 fi
-echo "$DEST/mylogin.py" > /tmp/mylogin.cfg
 sudo rsync -a mylogin.cfg /etc/spdb/
