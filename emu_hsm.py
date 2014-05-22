@@ -93,7 +93,7 @@ class Hsm(HsmComm):
 
     def handle(self,data):
         code=data[:2]
-        if seld.stats.get(code):
+        if self.stats.get(code):
             self.stats[code]+=1
         else:
             self.stats[code]=1
